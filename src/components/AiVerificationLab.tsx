@@ -65,7 +65,7 @@ export const AiVerificationLab: React.FC<AiVerificationLabProps> = ({
           setActiveTestDesc(data.samples[0].description);
         }
       } catch (err) {
-        console.error('Failed to load sample tests:', err);
+        console.warn('Sample tests load notice:', err);
       } finally {
         setLoadingSamples(false);
       }

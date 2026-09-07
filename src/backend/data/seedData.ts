@@ -1313,37 +1313,55 @@ export const INITIAL_ALERTS: Alert[] = [
 export const INITIAL_CITIZEN_FEEDBACK: CitizenFeedback[] = [
   {
     id: 'fb_001',
+    grievanceId: 'MPLADS-GRV-2024-001001',
     projectId: 'proj_002',
     workId: 'MPLADS/2023-24/TS/KRM/0102',
     projectTitle: 'Upgradation & Black-Topping of 1.8km Rural Arterial Road from Choppadandi to Kondapur',
     issueType: 'incomplete work',
     citizenName: 'K. Venkateshwar Rao',
     contactEmail: 'k.venkat.choppadandi@gmail.com',
+    contactPhone: '+91 98480 12345',
     comments: 'Contractor dumped gravel 4 months ago and left the road unrolled. During rains, school buses and two-wheelers are getting stuck. No tarring has been done.',
-    status: 'Under Investigation',
+    assignedOfficer: 'Dr. Anand K. Verma, IAS',
+    investigationRemarks: 'Field inspection completed on 24-03-2024. WBM layer found unrolled. Show-cause notice served to contractor.',
+    actionTaken: 'Payment withheld. Agency directed to complete bitumen surfacing within 21 days.',
+    status: 'Investigation',
     createdAt: '2024-03-20T09:15:00Z'
   },
   {
     id: 'fb_002',
+    grievanceId: 'MPLADS-GRV-2024-001002',
     projectId: 'proj_005',
     workId: 'MPLADS/2023-24/TS/KRM/0105',
     projectTitle: 'Installation of Solar Powered Mini Water Supply Pumpsets across 6 Thandas',
     issueType: 'asset not found',
     citizenName: 'B. Mohan Nayak',
+    contactEmail: 'mohan.nayak.krm@gmail.com',
+    contactPhone: '+91 94401 56789',
     comments: 'We visited Ramachandrapur Thanda borewell point mentioned in the portal. There is only an old manual handpump, no solar panels or syntax tank anywhere in the thanda.',
-    status: 'Pending',
+    assignedOfficer: 'Shri T. Ramesh, Deputy EE (Vigilance)',
+    investigationRemarks: 'Vigilance site inspection confirmed asset absence. Uploaded photo had falsified GPS coordinates.',
+    actionTaken: 'FIR recommended and recovery proceedings initiated against executing vendor.',
+    status: 'Action Taken',
     createdAt: '2024-04-05T16:40:00Z'
   },
   {
     id: 'fb_003',
+    grievanceId: 'MPLADS-GRV-2024-001003',
     projectId: 'proj_001',
     workId: 'MPLADS/2023-24/TS/KRM/0101',
     projectTitle: 'Construction of 50,000 Ltr Over-Head Water Tank & Distribution Lines',
     issueType: 'damaged asset',
     citizenName: 'Smt. Lakshmi Bai',
+    contactEmail: 'lakshmi.gangadhara@yahoo.com',
+    contactPhone: '+91 99890 98765',
     comments: 'The distribution pipe near the primary school has a minor leak at the elbow joint during trial pressure testing. Kindly request repair before road repaving.',
+    assignedOfficer: 'Executive Engineer PWD Rural Works',
+    investigationRemarks: 'Assistant Engineer inspected site. Defective PVC elbow joint identified and replaced under warranty.',
+    actionTaken: 'Pressure re-test completed successfully. Leak resolved and trench backfilled.',
     status: 'Resolved',
-    createdAt: '2024-03-25T11:20:00Z'
+    createdAt: '2024-03-25T11:20:00Z',
+    resolvedAt: '2024-03-28T15:00:00Z'
   }
 ];
 

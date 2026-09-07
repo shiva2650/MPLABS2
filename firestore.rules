@@ -23,43 +23,45 @@ service cloud.firestore {
     }
 
     function isMP() {
-      return isSignedIn() && (getUserRole() == 'mp' || exists(/databases/$(database)/documents/mps/$(request.auth.uid)));
+      return isSignedIn() && (
+        getUserRole() == 'mp' ||
+        exists(/databases/$(database)/documents/mps/$(request.auth.uid))
+      );
     }
 
     function isAgency() {
-      return isSignedIn() && (getUserRole() == 'agency' || exists(/databases/$(database)/documents/agencies/$(request.auth.uid)));
+      return isSignedIn() && (
+        getUserRole() == 'agency' ||
+        exists(/databases/$(database)/documents/agencies/$(request.auth.uid))
+      );
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // User Profiles
+    // 1. User Profiles & RBAC Definitions
     match /users/{userId} {
       allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isSignedIn() && request.auth.uid == userId && !('role' in request.resource.data && request.resource.data.role == 'admin');
       allow update: if isSignedIn() && (
         isAdmin() ||
-        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'agencyId', 'constituency']))
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'agencyId', 'constituency', 'district', 'state']))
       );
       allow delete: if isAdmin();
     }
 
-    // Projects: Public can read, authenticated roles have strict scoped access
+    // 2. Projects
     match /projects/{projectId} {
-      // Public read for transparent eSAKSHI citizen monitoring
+      // Public read for transparent citizen monitoring
       allow get, list: if true;
 
-      // MP can recommend works
+      // MP can recommend works under their own ID
       allow create: if isSignedIn() && (
         isAdmin() ||
         (isMP() && request.resource.data.mpId == request.auth.uid && request.resource.data.status == 'Recommended')
       );
 
-      // Updates are partitioned by role:
-      // - Admin: can modify status, sanctions, assign agency, risk review
-      // - Agency: can only update progress, photos, and expenditure on assigned project
-      // - MP: cannot modify admin decisions or agency financials
+      // Scoped updates:
+      // - Admin: full sanction, status, agency assignment, cost revisions
+      // - Agency: strictly physical execution on assigned works
+      // - MP: proposal revisions prior to sanction
       allow update: if isSignedIn() && (
         isAdmin() ||
         (isAgency() && resource.data.agencyId == request.auth.uid && 
@@ -71,32 +73,71 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Alerts: Admin only management; MPs can view for their constituency
+    // 3. AI Integrity & Anomaly Alerts
     match /alerts/{alertId} {
-      allow get, list: if isSignedIn() && (
-        isAdmin() ||
-        isMP()
-      );
+      // Scoped read: Admins see all, MPs see alerts for their own constituency projects
+      allow get: if isSignedIn() && (isAdmin() || (isMP() && resource.data.mpId == request.auth.uid));
+      allow list: if isSignedIn() && (isAdmin() || isMP());
       allow create: if isSignedIn() && isAdmin();
       allow update: if isSignedIn() && isAdmin() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewNotes', 'reviewedBy', 'reviewedAt', 'assignedOfficer']);
       allow delete: if isAdmin();
     }
 
-    // Citizen Feedback: Public can create, Admins can review/resolve
+    // 4. Citizen Grievances (Protection against PII harvesting)
     match /feedback/{feedbackId} {
+      // Citizens can submit grievances with safe size limits
       allow create: if request.resource.data.keys().hasAll(['projectId', 'issueType', 'comments', 'createdAt']) &&
-        request.resource.data.comments.size() <= 1500;
-      allow read: if true;
+        request.resource.data.comments.size() <= 2000;
+      
+      // Scoped read: Only Admins, assigned MPs, or assigned Agencies can browse feedback list
+      // Public cannot browse all citizen emails and phone numbers
+      allow list: if isSignedIn() && (isAdmin() || isMP() || isAgency());
+      allow get: if (isSignedIn() && (isAdmin() || isMP() || isAgency())) ||
+        (resource.data.grievanceId != null && request.auth != null);
+      
+      // Only administrative authority can update status and record action taken
       allow update: if isSignedIn() && isAdmin();
       allow delete: if isAdmin();
     }
 
-    // Audit Logs: Append-only, strict immutability. Nobody can update or delete audit logs.
+    // 5. Quality & Field Inspections
+    match /inspections/{inspectionId} {
+      allow list, get: if isSignedIn() && (isAdmin() || isMP() || isAgency());
+      allow create: if isSignedIn() && (isAdmin() || getUserRole() == 'inspector');
+      allow update: if isSignedIn() && (isAdmin() || getUserRole() == 'inspector');
+      allow delete: if isAdmin();
+    }
+
+    // 6. Statutory & Technical Documents
+    match /documents/{docId} {
+      allow list, get: if isSignedIn() && (isAdmin() || isMP() || isAgency());
+      allow create: if isSignedIn() && (isAdmin() || isAgency() || isMP());
+      allow update: if isSignedIn() && isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verificationStatus', 'verifiedBy', 'verifiedAt', 'notes']);
+      allow delete: if isAdmin();
+    }
+
+    // 7. System Notifications (Recipient Isolation)
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.targetRole == getUserRole() ||
+        resource.data.targetUserId == request.auth.uid
+      );
+      allow create: if isSignedIn() && isAdmin();
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 8. Immutable Append-Only Audit Logs
     match /auditLogs/{logId} {
       allow read: if isSignedIn() && isAdmin();
       allow create: if isSignedIn();
-      allow update, delete: if false; // Strict append-only invariant
+      allow update, delete: if false; // STRICT IMMUTABILITY INVARIANT: Never modified or purged
     }
   }
 }

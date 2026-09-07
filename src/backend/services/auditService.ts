@@ -1,11 +1,8 @@
 import { AuditLogEntry, UserRole } from '../../types/index.ts';
-import { INITIAL_AUDIT_LOGS } from '../data/seedData.ts';
-
-// In-memory append-only log store initialized with realistic initial logs
-const auditStore: AuditLogEntry[] = [...INITIAL_AUDIT_LOGS];
+import { db } from '../security/persistence.ts';
 
 /**
- * Appends a new immutable audit log entry.
+ * Appends a new immutable audit log entry to persistent storage.
  * Note: No updates or deletes are permitted on this store, preserving an unalterable history.
  */
 export function recordAuditLog(params: {
@@ -35,13 +32,10 @@ export function recordAuditLog(params: {
     ipAddress: params.ipAddress || '127.0.0.1'
   };
 
-  auditStore.unshift(newEntry);
+  db.appendAuditLog(newEntry);
   return newEntry;
 }
 
 export function getAuditLogs(projectId?: string): AuditLogEntry[] {
-  if (projectId) {
-    return auditStore.filter((l) => l.projectId === projectId);
-  }
-  return [...auditStore];
+  return db.getAuditLogs(projectId);
 }

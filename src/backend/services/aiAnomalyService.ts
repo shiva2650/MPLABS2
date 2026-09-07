@@ -269,72 +269,147 @@ export function predictProjectDelay(project: Project): {
 }
 
 /**
- * Composite Risk Scoring (0–100)
+ * Composite Deterministic Risk Scoring Engine (0–100)
+ * 0–20 -> LOW
+ * 21–40 -> MODERATE
+ * 41–60 -> ELEVATED
+ * 61–80 -> HIGH
+ * 81–100 -> CRITICAL
  */
-export function calculateRiskScore(project: Project): {
+export function calculateRiskScore(
+  project: Project,
+  context?: {
+    unresolvedGrievanceCount?: number;
+    inspectionResult?: string;
+    hasMissingDocuments?: boolean;
+    vendorDelayHistory?: boolean;
+  }
+): {
   score: number;
   level: RiskLevel;
   reason: string;
+  reasons: string[];
 } {
-  let score = 10;
-  const factors: string[] = [];
+  let score = 5; // Baseline minimum administrative overhead
+  const reasons: string[] = [];
 
-  // Cost Anomaly Factor
+  // 1. Delay Factors
+  if (project.delayPrediction?.status === 'Delayed') {
+    const delayDays = project.delayPrediction.estimatedDelayDays || 60;
+    const add = Math.min(30, 15 + Math.round(delayDays / 10));
+    score += add;
+    reasons.push(`${delayDays}-day delay past sanctioned timeline (+${add} pts)`);
+  } else if (project.delayPrediction?.status === 'At Risk') {
+    const delayDays = project.delayPrediction.estimatedDelayDays || 25;
+    score += 15;
+    reasons.push(`Milestone velocity lag (~${delayDays} days projected slippage) (+15 pts)`);
+  }
+
+  // 2. Physical Progress vs Financial Expenditure Discrepancy
+  const cost = project.sanctionedCost || project.estimatedCost || 1;
+  const expenditurePercentage = Math.min(100, Math.round(((project.utilizedCost || 0) / cost) * 100));
+  const progressPercentage = project.completionPercentage || 0;
+  const discrepancy = expenditurePercentage - progressPercentage;
+
+  if (discrepancy >= 35 && expenditurePercentage > 40) {
+    score += 25;
+    reasons.push(`Severe financial discrepancy: ${expenditurePercentage}% expenditure vs ${progressPercentage}% physical progress (+25 pts)`);
+  } else if (discrepancy >= 20 && expenditurePercentage > 30) {
+    score += 15;
+    reasons.push(`Expenditure ahead of milestone: ${expenditurePercentage}% funds released vs ${progressPercentage}% physical progress (+15 pts)`);
+  }
+
+  // 3. Cost Anomaly Factor (Statistical Z-Score)
   if (project.costAnomaly?.isAnomaly) {
     const z = project.costAnomaly.zScore;
-    const add = Math.min(35, Math.round(z * 12));
+    const add = Math.min(25, Math.round(z * 10));
     score += add;
-    factors.push(`Cost outlier (+${add} pts, z-score: ${z})`);
+    reasons.push(`Cost outlier: ₹${((project.estimatedCost || 0) / 100000).toFixed(1)}L is ${z} std dev above regional baseline (+${add} pts)`);
   }
 
-  // Duplicate Suspect Factor
-  if (project.duplicateFlag?.isSuspected) {
-    const sim = project.duplicateFlag.similarityScore || 70;
-    const add = Math.round((sim / 100) * 35);
-    score += add;
-    factors.push(`Possible duplicate asset (+${add} pts, ${sim}% overlap)`);
-  }
-
-  // Delay Factor
-  if (project.delayPrediction?.status === 'Delayed') {
-    score += 30;
-    factors.push('Overdue past target date (+30 pts)');
-  } else if (project.delayPrediction?.status === 'At Risk') {
-    score += 15;
-    factors.push('Milestone velocity lag (+15 pts)');
-  }
-
-  // Photo / GPS Anomaly Factors
+  // 4. Site Photo & Geo-Verification Anomaly Factors
   const hasMismatch = project.photos.some((p) => p.exifStatus === 'Mismatch');
-  const hasUnverifiable = project.photos.some((p) => p.exifStatus === 'Unverifiable');
   const hasSuspicious = project.photos.some((p) => p.exifStatus === 'Suspicious');
+  const hasUnverifiable = project.photos.some((p) => p.exifStatus === 'Unverifiable');
 
   if (hasMismatch) {
     score += 30;
-    factors.push('Site photo location mismatch (+30 pts)');
+    reasons.push('Failed photo verification: location mismatch beyond geo-fence threshold (+30 pts)');
   }
   if (hasSuspicious) {
     score += 25;
-    factors.push('Software edit/AI image indicator (+25 pts)');
+    reasons.push('Photo anomaly: digital tampering or software edit detected in EXIF (+25 pts)');
   }
   if (hasUnverifiable) {
     score += 15;
-    factors.push('Stripped EXIF metadata (+15 pts)');
+    reasons.push('Unverifiable photo: stripped camera/GPS EXIF metadata (+15 pts)');
   }
 
-  score = Math.min(100, Math.max(5, score));
+  // 5. Duplicate Asset / Project Detection
+  if (project.duplicateFlag?.isSuspected) {
+    const sim = project.duplicateFlag.similarityScore || 75;
+    const add = Math.min(25, Math.round((sim / 100) * 25));
+    score += add;
+    reasons.push(`Possible duplicate asset: ${sim}% description & geo overlap (+${add} pts)`);
+  }
 
+  // 6. Citizen Grievances Factor
+  const grievanceCount = context?.unresolvedGrievanceCount || 0;
+  if (grievanceCount > 0) {
+    const add = Math.min(20, grievanceCount * 8);
+    score += add;
+    reasons.push(`${grievanceCount} unresolved citizen grievance(s) on file (+${add} pts)`);
+  }
+
+  // 7. Site Inspection Results Factor
+  const inspResult = context?.inspectionResult;
+  if (inspResult === 'Critical Issues') {
+    score += 30;
+    reasons.push('Site inspection: critical construction quality or safety failure (+30 pts)');
+  } else if (inspResult === 'Major Issues') {
+    score += 20;
+    reasons.push('Site inspection: major structural or compliance defects recorded (+20 pts)');
+  } else if (inspResult === 'Minor Issues') {
+    score += 10;
+    reasons.push('Site inspection: minor rectification items pending (+10 pts)');
+  }
+
+  // 8. Missing Documents Factor
+  const missingDocs = context?.hasMissingDocuments;
+  if (missingDocs || (expenditurePercentage > 75 && !project.payments.some((p) => p.utilizationCertSubmitted))) {
+    score += 15;
+    reasons.push('Documentation deficit: missing statutory Utilization Certificate or Work Order (+15 pts)');
+  }
+
+  // 9. Vendor Risk History
+  if (context?.vendorDelayHistory) {
+    score += 10;
+    reasons.push('Executing vendor has multi-work delay history in district (+10 pts)');
+  }
+
+  // Clamp deterministic score between 0 and 100
+  score = Math.min(100, Math.max(0, score));
+
+  // 5-Tier Classification according to specification
   let level: RiskLevel = 'Low';
-  if (score > 80) level = 'Critical';
-  else if (score > 60) level = 'High';
-  else if (score > 30) level = 'Medium';
+  if (score >= 81) {
+    level = 'Critical';
+  } else if (score >= 61) {
+    level = 'High';
+  } else if (score >= 41) {
+    level = 'Elevated';
+  } else if (score >= 21) {
+    level = 'Moderate';
+  } else {
+    level = 'Low';
+  }
 
   const reason =
-    factors.length > 0
-      ? `Decision support indicators: ${factors.join('; ')}.`
+    reasons.length > 0
+      ? `Decision support indicators: ${reasons.join('; ')}`
       : 'All physical milestones, cost baselines, and geo-inspections within normal operational bounds.';
 
-  return { score, level, reason };
+  return { score, level, reason, reasons };
 }
 
 /**

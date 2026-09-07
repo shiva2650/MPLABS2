@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { errorLogger } from '../services/errorLogger.ts';
 
 interface Props {
   children: ReactNode;
@@ -26,6 +27,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error in UI component:', error, errorInfo);
+    errorLogger.logError('runtime', error.message || 'React render failure', error, {
+      componentStack: errorInfo.componentStack,
+    }, 'react_render');
   }
 
   public handleReset = () => {

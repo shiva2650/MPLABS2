@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Filter, X, RotateCcw } from 'lucide-react';
+import { Search, X, RotateCcw } from 'lucide-react';
 
 interface FilterState {
   search: string;
@@ -39,129 +39,126 @@ export const SearchFilterPanel: React.FC<SearchFilterPanelProps> = ({
     filters.riskLevel !== 'All';
 
   return (
-    <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-2xs mb-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3 pb-3 border-b border-gray-100">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-blue-900" />
-          <span className="text-sm font-bold text-gray-900">Project Search & Filter Engine</span>
-          <span className="text-xs bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded-full">
-            {totalResults} Works Found
+    <div className="bg-white p-3 rounded border border-slate-200 mb-5">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-2.5">
+        {/* Search Input */}
+        <div className="relative flex-1">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={filters.search}
+            onChange={(e) => handleChange('search', e.target.value)}
+            placeholder="Search by Work ID, Title, Representative, District, or Agency..."
+            className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-slate-900"
+          />
+          {filters.search && (
+            <button
+              type="button"
+              onClick={() => handleChange('search', '')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Results count & reset */}
+        <div className="flex items-center justify-between sm:justify-end gap-2 text-xs">
+          <span className="text-slate-500 whitespace-nowrap">
+            <strong className="text-slate-900 font-bold">{totalResults}</strong> works found
           </span>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="flex items-center gap-1 text-[11px] font-semibold text-rose-700 hover:text-rose-900 transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset</span>
+            </button>
+          )}
         </div>
-
-        {hasActiveFilters && (
-          <button
-            onClick={onReset}
-            className="flex items-center gap-1 text-xs font-semibold text-red-700 hover:text-red-900 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset All Filters</span>
-          </button>
-        )}
       </div>
 
-      {/* Primary Search Bar */}
-      <div className="relative mb-3">
-        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <Search className="h-4 w-4 text-gray-400" />
-        </div>
-        <input
-          type="text"
-          value={filters.search}
-          onChange={(e) => handleChange('search', e.target.value)}
-          placeholder="Search by Work ID (e.g. MPLADS/2024-25/TS...), Work Title, MP Name, District, or Implementing Agency..."
-          className="w-full pl-9 pr-8 py-2 text-sm bg-gray-50 border border-gray-300 rounded-md focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-900 focus:border-blue-900 transition-all text-gray-900"
-        />
-        {filters.search && (
-          <button
-            onClick={() => handleChange('search', '')}
-            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Multi-Criteria Dropdowns */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+      {/* Filter Dropdowns in compact single line / responsive grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
         <div>
-          <label className="block text-[11px] font-bold text-gray-600 uppercase mb-1">Parliamentary House</label>
           <select
             value={filters.house}
             onChange={(e) => handleChange('house', e.target.value)}
-            className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800 font-medium"
+            className="w-full py-1 px-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-900 font-medium"
           >
-            <option value="All">All Houses (543 + 245)</option>
+            <option value="All">All Houses (Lok / Rajya)</option>
             <option value="Lok Sabha">Lok Sabha</option>
             <option value="Rajya Sabha">Rajya Sabha</option>
           </select>
         </div>
 
         <div>
-          <label className="block text-[11px] font-bold text-gray-600 uppercase mb-1">State / UT</label>
           <select
             value={filters.state}
             onChange={(e) => handleChange('state', e.target.value)}
-            className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800 font-medium"
+            className="w-full py-1 px-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-900 font-medium"
           >
-            <option value="All">All States</option>
+            <option value="All">All States / UTs</option>
             <option value="Telangana">Telangana</option>
+            <option value="Uttar Pradesh">Uttar Pradesh</option>
             <option value="Maharashtra">Maharashtra</option>
             <option value="Karnataka">Karnataka</option>
-            <option value="Uttar Pradesh">Uttar Pradesh</option>
+            <option value="Tamil Nadu">Tamil Nadu</option>
             <option value="Rajasthan">Rajasthan</option>
+            <option value="Bihar">Bihar</option>
+            <option value="Kerala">Kerala</option>
+            <option value="West Bengal">West Bengal</option>
+            <option value="Assam">Assam</option>
+            <option value="Gujarat">Gujarat</option>
           </select>
         </div>
 
         <div>
-          <label className="block text-[11px] font-bold text-gray-600 uppercase mb-1">Asset Category</label>
           <select
             value={filters.category}
             onChange={(e) => handleChange('category', e.target.value)}
-            className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800 font-medium"
+            className="w-full py-1 px-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-900 font-medium"
           >
-            <option value="All">All Categories</option>
+            <option value="All">All Sectors</option>
             <option value="Drinking Water">Drinking Water</option>
-            <option value="Education & Schools">Education & Schools</option>
-            <option value="Health & Sanitation">Health & Sanitation</option>
-            <option value="Roads & Pathways">Roads & Pathways</option>
-            <option value="Rural Electrification">Rural Electrification</option>
-            <option value="Community Infrastructure">Community Infrastructure</option>
-            <option value="Irrigation & Agriculture">Irrigation & Agriculture</option>
-            <option value="Sports & Youth Facilities">Sports & Youth Facilities</option>
+            <option value="Education">Education</option>
+            <option value="Electricity">Electricity</option>
+            <option value="Health & Family Welfare">Health & Family Welfare</option>
+            <option value="Irrigation">Irrigation</option>
+            <option value="Roads, Pathways & Bridges">Roads & Bridges</option>
+            <option value="Sanitation">Sanitation</option>
+            <option value="Community Halls">Community Halls</option>
           </select>
         </div>
 
         <div>
-          <label className="block text-[11px] font-bold text-gray-600 uppercase mb-1">Execution Status</label>
           <select
             value={filters.status}
             onChange={(e) => handleChange('status', e.target.value)}
-            className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800 font-medium"
+            className="w-full py-1 px-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-900 font-medium"
           >
-            <option value="All">All Statuses</option>
+            <option value="All">All Execution Stages</option>
             <option value="Recommended">Recommended</option>
-            <option value="Under Review">Under Review</option>
             <option value="Sanctioned">Sanctioned</option>
-            <option value="Assigned">Assigned to Agency</option>
-            <option value="Ongoing">Ongoing (MB Active)</option>
-            <option value="Delayed">Delayed / Lagging</option>
-            <option value="Completed">Completed & Handed Over</option>
+            <option value="Ongoing">Ongoing</option>
+            <option value="Delayed">Delayed</option>
+            <option value="Completed">Completed</option>
           </select>
         </div>
 
-        <div>
-          <label className="block text-[11px] font-bold text-gray-600 uppercase mb-1">AI Risk Tier</label>
+        <div className="col-span-2 sm:col-span-1">
           <select
             value={filters.riskLevel}
             onChange={(e) => handleChange('riskLevel', e.target.value)}
-            className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800 font-medium"
+            className="w-full py-1 px-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-900 font-medium"
           >
-            <option value="All">All Risk Tiers</option>
-            <option value="Low">Low (Normal)</option>
-            <option value="Medium">Medium (Attention)</option>
-            <option value="High">High (Discrepancy)</option>
-            <option value="Critical">Critical (Anomaly)</option>
+            <option value="All">All AI Risk Levels</option>
+            <option value="Low">Low Risk</option>
+            <option value="Moderate">Moderate Risk</option>
+            <option value="High">High Risk</option>
+            <option value="Critical">Critical Risk</option>
           </select>
         </div>
       </div>

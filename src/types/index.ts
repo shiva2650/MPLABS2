@@ -29,7 +29,7 @@ export type ProjectStatus =
   | 'Completed'
   | 'Rejected';
 
-export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Critical';
+export type RiskLevel = 'Low' | 'Moderate' | 'Elevated' | 'High' | 'Critical' | 'Medium';
 
 export type HouseType = 'Lok Sabha' | 'Rajya Sabha';
 
@@ -82,6 +82,82 @@ export interface ProjectPayment {
   utilizationCertSubmitted: boolean;
 }
 
+export type DocumentType =
+  | 'Sanction Order'
+  | 'Work Order'
+  | 'Administrative Approval'
+  | 'Technical Approval'
+  | 'Bill'
+  | 'Inspection Report'
+  | 'Completion Certificate'
+  | 'Utilization Certificate';
+
+export interface ProjectDocument {
+  id: string;
+  projectId: string;
+  workId: string;
+  documentType: DocumentType;
+  title: string;
+  fileUrl: string;
+  fileName: string;
+  fileSize?: string;
+  uploadedBy: string;
+  uploadedRole: UserRole;
+  uploadedAt: string;
+  verificationStatus: 'Pending' | 'Verified' | 'Flagged';
+  verifiedBy?: string;
+  verifiedAt?: string;
+  notes?: string;
+}
+
+export type InspectionResult = 'Satisfactory' | 'Minor Issues' | 'Major Issues' | 'Critical Issues' | 'Pending';
+
+export interface InspectionChecklistItem {
+  item: string;
+  status: 'Pass' | 'Fail' | 'Partial' | 'N/A' | 'Satisfactory' | 'Issue';
+  notes?: string;
+}
+
+export interface ProjectInspection {
+  id: string;
+  projectId: string;
+  workId: string;
+  projectTitle: string;
+  district: string;
+  state: string;
+  inspectingOfficer: string;
+  officerDesignation: string;
+  scheduledDate: string;
+  inspectionDate?: string;
+  status: 'Scheduled' | 'Completed' | 'Cancelled';
+  result: InspectionResult;
+  checklist: InspectionChecklistItem[];
+  observations: string;
+  recommendations: string;
+  complianceNotes?: string;
+  photos: string[];
+  recordedAt?: string;
+}
+
+export type TimelineStage =
+  | 'Proposed'
+  | 'Recommended'
+  | 'Approved'
+  | 'Sanctioned'
+  | 'Work Started'
+  | 'In Progress'
+  | 'Inspection'
+  | 'Completed';
+
+export interface ProjectTimelineEvent {
+  id: string;
+  stage: TimelineStage;
+  date: string;
+  actor: string;
+  actorRole: string;
+  notes: string;
+}
+
 export interface Project {
   id: string;
   workId: string;
@@ -97,7 +173,7 @@ export interface Project {
   constituency: string;
   financialYear: string;
   
-  // Financials (in Rupees, typically displayed in Lakhs: 1 Lakh = 100,000 INR)
+  // Financials (in Rupees)
   estimatedCost: number;
   sanctionedCost: number;
   utilizedCost: number;
@@ -121,10 +197,11 @@ export interface Project {
   
   completionPercentage: number;
   
-  // AI Decision-Support Metrics
+  // AI Decision-Support Metrics (Deterministic 0-100)
   riskScore: number; // 0-100
   riskLevel: RiskLevel;
   riskReason: string;
+  riskReasons?: string[]; // Detailed individual risk factors
   costAnomaly?: {
     isAnomaly: boolean;
     zScore: number;
@@ -148,6 +225,9 @@ export interface Project {
   photos: ProjectPhoto[];
   payments: ProjectPayment[];
   progressLogs: MilestoneProgress[];
+  documents?: ProjectDocument[];
+  inspections?: ProjectInspection[];
+  timeline?: ProjectTimelineEvent[];
   
   createdAt: string;
   updatedAt: string;
@@ -159,7 +239,9 @@ export type AlertType =
   | 'Delay Risk'
   | 'Possible Duplicate'
   | 'Photo Anomaly'
-  | 'Location Mismatch';
+  | 'Location Mismatch'
+  | 'Financial Discrepancy'
+  | 'Inspection Defect';
 
 export type AlertStatus =
   | 'Open'
@@ -167,7 +249,8 @@ export type AlertStatus =
   | 'Valid'
   | 'False Positive'
   | 'Needs More Info'
-  | 'Escalated';
+  | 'Escalated'
+  | 'Resolved';
 
 export interface Alert {
   id: string;
@@ -194,24 +277,57 @@ export type IssueType =
   | 'asset not found'
   | 'damaged asset'
   | 'Substandard Construction Quality'
+  | 'Financial Irregularity'
   | 'other';
+
+export type GrievanceWorkflowStatus =
+  | 'Submitted'
+  | 'Under Review'
+  | 'Assigned'
+  | 'Investigation'
+  | 'Under Investigation'
+  | 'Action Taken'
+  | 'Resolved'
+  | 'Dismissed'
+  | 'Pending';
 
 export interface CitizenFeedback {
   id: string;
+  grievanceId?: string; // e.g. MPLADS-GRV-2024-001042
   projectId: string;
   workId: string;
   projectTitle: string;
   issueType: IssueType;
   citizenName: string;
   contactEmail?: string;
+  contactPhone?: string;
   comments: string;
   photoUrl?: string;
   photoVerification?: {
     status: 'Verified' | 'Mismatch' | 'Unverifiable';
     distanceMeters?: number;
   };
-  status: 'Pending' | 'Under Investigation' | 'Resolved' | 'Dismissed';
+  assignedOfficer?: string;
+  investigationRemarks?: string;
+  actionTaken?: string;
+  status: GrievanceWorkflowStatus;
   createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface SystemNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'high_risk' | 'delay' | 'financial_anomaly' | 'grievance' | 'inspection_due' | 'missing_document' | 'photo_failure';
+  priority: 'Critical' | 'High' | 'Medium' | 'Info' | 'high' | 'medium' | 'info';
+  projectId?: string;
+  workId?: string;
+  targetRole?: UserRole | 'citizen';
+  targetUserId?: string;
+  isRead: boolean;
+  timestamp: string;
+  createdAt?: string;
 }
 
 export interface AuditLogEntry {
@@ -264,6 +380,7 @@ export interface VendorProjectSummary {
   workId: string;
   title: string;
   category: string;
+  agencyName?: string;
   status: ProjectStatus;
   sanctionedCost: number;
   utilizedCost: number;

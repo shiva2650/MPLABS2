@@ -5,8 +5,12 @@ import {
   AuditLogEntry,
   User,
   VendorAnalytics,
-  PhotoVerificationResult
+  PhotoVerificationResult,
+  ProjectInspection,
+  ProjectDocument,
+  SystemNotification
 } from '../types/index.ts';
+import { INITIAL_NOTIFICATIONS } from '../backend/data/seedInspectionsAndDocuments.ts';
 
 const TOKEN_KEY = 'mplads_auth_token';
 const USER_KEY = 'mplads_auth_user';
@@ -263,10 +267,16 @@ export async function fetchTestPhotoSamples(): Promise<{
 }
 
 export async function fetchAlerts(): Promise<Alert[]> {
-  const res = await fetch('/api/alerts', { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch integrity alerts');
-  const data = await res.json();
-  return data.alerts || [];
+  const token = getStoredToken();
+  if (!token) return [];
+  try {
+    const res = await fetch('/api/alerts', { headers: getHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.alerts || [];
+  } catch {
+    return [];
+  }
 }
 
 export async function reviewAlert(
@@ -285,10 +295,16 @@ export async function reviewAlert(
 }
 
 export async function fetchVendorAnalytics(): Promise<VendorAnalytics[]> {
-  const res = await fetch('/api/analytics/vendors', { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch vendor analytics');
-  const data = await res.json();
-  return data.vendors || [];
+  const token = getStoredToken();
+  if (!token) return [];
+  try {
+    const res = await fetch('/api/analytics/vendors', { headers: getHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.vendors || [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchVendorByName(name: string): Promise<VendorAnalytics> {
@@ -299,11 +315,17 @@ export async function fetchVendorByName(name: string): Promise<VendorAnalytics> 
 }
 
 export async function fetchFeedback(projectId?: string): Promise<CitizenFeedback[]> {
-  const url = projectId ? `/api/feedback?projectId=${projectId}` : '/api/feedback';
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch citizen feedback');
-  const data = await res.json();
-  return data.feedback || [];
+  const token = getStoredToken();
+  if (!token) return [];
+  try {
+    const url = projectId ? `/api/feedback?projectId=${projectId}` : '/api/feedback';
+    const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.feedback || [];
+  } catch {
+    return [];
+  }
 }
 
 export async function submitCitizenFeedback(payload: {
@@ -332,3 +354,223 @@ export async function fetchAuditLogs(projectId?: string): Promise<AuditLogEntry[
   const data = await res.json();
   return data.logs || [];
 }
+
+export async function queryAiAssistant(query: string): Promise<{
+  answer: string;
+  sourceCount: number;
+  role: string;
+  suggestedFollowups?: string[];
+}> {
+  const res = await fetch('/api/ai/assistant', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ query })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'AI Assistant service unavailable');
+  return data;
+}
+
+export async function fetchInspections(projectId?: string): Promise<ProjectInspection[]> {
+  const url = projectId ? `/api/inspections?projectId=${projectId}` : '/api/inspections';
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch inspections');
+  const data = await res.json();
+  return data.inspections || [];
+}
+
+export async function scheduleInspection(payload: {
+  projectId: string;
+  scheduledDate: string;
+  inspectingOfficer?: string;
+  officerDesignation?: string;
+}): Promise<ProjectInspection> {
+  const res = await fetch('/api/inspections', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to schedule inspection');
+  return data.inspection;
+}
+
+export async function recordInspectionFindings(
+  id: string,
+  payload: {
+    result: string;
+    observations: string;
+    recommendations: string;
+    checklist?: any[];
+    photos?: string[];
+    complianceNotes?: string;
+  }
+): Promise<ProjectInspection> {
+  const res = await fetch(`/api/inspections/${id}`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to record inspection findings');
+  return data.inspection;
+}
+
+export async function fetchProjectDocuments(projectId: string): Promise<ProjectDocument[]> {
+  const res = await fetch(`/api/projects/${projectId}/documents`, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch documents');
+  const data = await res.json();
+  return data.documents || [];
+}
+
+export async function uploadProjectDocument(
+  projectId: string,
+  payload: {
+    documentType: string;
+    title: string;
+    fileName?: string;
+    fileUrl?: string;
+    fileSize?: string;
+    notes?: string;
+  }
+): Promise<ProjectDocument> {
+  const res = await fetch(`/api/projects/${projectId}/documents`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to upload document');
+  return data.document;
+}
+
+export async function verifyProjectDocument(
+  id: string,
+  payload: { verificationStatus: 'Verified' | 'Flagged' | 'Pending'; notes?: string }
+): Promise<ProjectDocument> {
+  const res = await fetch(`/api/documents/${id}/verify`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to verify document');
+  return data.document;
+}
+
+export async function trackGrievance(grievanceId: string): Promise<{
+  grievance: CitizenFeedback;
+  project?: {
+    workId: string;
+    title: string;
+    category: string;
+    status: string;
+    state: string;
+    district: string;
+    mpName: string;
+  };
+}> {
+  const res = await fetch(`/api/feedback/track/${encodeURIComponent(grievanceId)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Grievance record not found');
+  return data;
+}
+
+export async function updateGrievanceStatus(
+  id: string,
+  payload: {
+    status: string;
+    assignedOfficer?: string;
+    investigationRemarks?: string;
+    actionTaken?: string;
+  }
+): Promise<CitizenFeedback> {
+  const res = await fetch(`/api/feedback/${id}/status`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update grievance status');
+  return data.feedback;
+}
+
+export async function fetchNotifications(): Promise<SystemNotification[]> {
+  const CACHE_KEY = 'mplads_cached_notifications';
+
+  // Try fetching with auto-retry in case dev server is restarting or network glitched
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch('/api/notifications', { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        const list = data.notifications || [];
+        safeStorageSet(CACHE_KEY, JSON.stringify(list));
+        return list;
+      }
+    } catch {
+      if (attempt === 0) {
+        // Wait 400ms before retry
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+    }
+  }
+
+  // Gracefully fallback to cached notifications or initial seed
+  const cached = safeStorageGet(CACHE_KEY);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    } catch {
+      // ignore JSON parse error
+    }
+  }
+
+  return INITIAL_NOTIFICATIONS;
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const CACHE_KEY = 'mplads_cached_notifications';
+  try {
+    const cached = safeStorageGet(CACHE_KEY);
+    if (cached) {
+      try {
+        const list = JSON.parse(cached);
+        if (Array.isArray(list)) {
+          const updated = list.map((n: SystemNotification) => (n.id === id ? { ...n, isRead: true } : n));
+          safeStorageSet(CACHE_KEY, JSON.stringify(updated));
+        }
+      } catch {
+        // ignore
+      }
+    }
+    await fetch(`/api/notifications/${id}/read`, { method: 'PUT', headers: getHeaders() });
+  } catch {
+    // Graceful offline handling
+  }
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  const CACHE_KEY = 'mplads_cached_notifications';
+  try {
+    const cached = safeStorageGet(CACHE_KEY);
+    if (cached) {
+      try {
+        const list = JSON.parse(cached);
+        if (Array.isArray(list)) {
+          const updated = list.map((n: SystemNotification) => ({ ...n, isRead: true }));
+          safeStorageSet(CACHE_KEY, JSON.stringify(updated));
+        }
+      } catch {
+        // ignore
+      }
+    }
+    await fetch('/api/notifications/read-all', { method: 'PUT', headers: getHeaders() });
+  } catch {
+    // Graceful offline handling
+  }
+}
+

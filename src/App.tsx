@@ -24,7 +24,14 @@ import { AgencyDashboard } from './components/AgencyDashboard.tsx';
 import { AiVerificationLab } from './components/AiVerificationLab.tsx';
 import { ProjectDetailModal } from './components/ProjectDetailModal.tsx';
 import { VendorAnalyticsView } from './components/VendorAnalyticsView.tsx';
+import { AiAssistantChatbot } from './components/AiAssistantChatbot.tsx';
+import { GrievanceTrackerModal } from './components/GrievanceTrackerModal.tsx';
+import { ScheduleInspectionModal } from './components/ScheduleInspectionModal.tsx';
+import { RecordInspectionModal } from './components/RecordInspectionModal.tsx';
+import { ProjectInspection } from './types/index.ts';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { errorLogger, LoggedError } from './services/errorLogger.ts';
+import { validateFirebaseConfig } from './firebase/config.ts';
 import {
   Building2,
   MapPin,
@@ -35,12 +42,29 @@ import {
   ShieldAlert,
   ArrowRight,
   Eye,
-  RefreshCw
+  RefreshCw,
+  AlertOctagon,
+  X
 } from 'lucide-react';
 
 export default function App() {
-  // Current Authenticated User Session
-  const [user, setUser] = useState<User | null>(getStoredUser());
+  // Current Authenticated User Session with early detection
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      errorLogger.setInitPhase('session_restore');
+      return getStoredUser();
+    } catch (err) {
+      errorLogger.logInitFailure('session_restore', err);
+      return null;
+    }
+  });
+
+  // Track early initialization diagnostics
+  const [initErrors, setInitErrors] = useState<LoggedError[]>(() => [
+    ...errorLogger.getErrorsByType('init'),
+    ...errorLogger.getErrorsByType('firebase')
+  ]);
+  const [showInitDiagnostics, setShowInitDiagnostics] = useState(false);
 
   // Active View Tab: 'public' | 'dashboard' | 'ai-lab' | 'feedback' | 'vendors'
   const [activeView, setActiveView] = useState<'public' | 'dashboard' | 'ai-lab' | 'feedback' | 'vendors'>('public');
@@ -61,6 +85,11 @@ export default function App() {
   // Modal Controls
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [inspectedProject, setInspectedProject] = useState<Project | null>(null);
+  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
+  const [isGrievanceTrackerOpen, setIsGrievanceTrackerOpen] = useState(false);
+  const [trackingGrievanceId, setTrackingGrievanceId] = useState('');
+  const [scheduleInspectionProject, setScheduleInspectionProject] = useState<Project | null>(null);
+  const [recordingInspection, setRecordingInspection] = useState<ProjectInspection | null>(null);
 
   // Application Data Stores
   const [publicStats, setPublicStats] = useState<any | null>(null);
@@ -71,35 +100,63 @@ export default function App() {
   const [allVendors, setAllVendors] = useState<VendorAnalytics[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Data Loader
+  // Subscribe to errorLogger events to track initialization diagnostics
+  useEffect(() => {
+    // Audit Firebase environment variables on mount
+    validateFirebaseConfig();
+
+    const unsubscribe = errorLogger.subscribe((err) => {
+      if (err.type === 'init' || err.type === 'firebase') {
+        setInitErrors((prev) => [err, ...prev.filter((p) => p.id !== err.id)]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Data Loader with early failure detection
   const loadPortalData = async () => {
     setLoading(true);
+    errorLogger.setInitPhase('portal_data_hydration');
+
     try {
       const [stats, mps, projects, alerts, feedback, vendors] = await Promise.all([
         fetchPublicStats().catch((e) => {
-          console.warn('Failed to fetch public stats:', e);
+          errorLogger.logInitFailure('fetch_public_stats', e);
           return null;
         }),
         fetchMpStats().catch((e) => {
-          console.warn('Failed to fetch MP stats:', e);
+          errorLogger.logInitFailure('fetch_mp_stats', e);
           return [];
         }),
         fetchProjects().catch((e) => {
-          console.warn('Failed to fetch projects:', e);
+          errorLogger.logInitFailure('fetch_projects', e);
           return [];
         }),
-        fetchAlerts().catch(() => []),
-        fetchFeedback().catch(() => []),
-        fetchVendorAnalytics().catch(() => [])
+        fetchAlerts().catch((e) => {
+          errorLogger.logInitFailure('fetch_alerts', e);
+          return [];
+        }),
+        fetchFeedback().catch((e) => {
+          errorLogger.logInitFailure('fetch_feedback', e);
+          return [];
+        }),
+        fetchVendorAnalytics().catch((e) => {
+          errorLogger.logInitFailure('fetch_vendor_analytics', e);
+          return [];
+        })
       ]);
+
       setPublicStats(stats);
       setMpLedger(mps || []);
       setAllProjects(projects || []);
       setAllAlerts(alerts || []);
       setAllFeedback(feedback || []);
       setAllVendors(vendors || []);
+      errorLogger.setInitPhase('ready');
     } catch (err) {
-      console.error('Error fetching portal data:', err);
+      console.error('Fatal initialization error in loadPortalData:', err);
+      errorLogger.logInitFailure('load_portal_data_critical', err);
     } finally {
       setLoading(false);
     }
@@ -161,6 +218,18 @@ export default function App() {
 
   const formatLakhs = (amt: number) => `₹${(amt / 100000).toFixed(1)} L`;
 
+  const handleSelectProjectById = (workOrId: string) => {
+    const found = allProjects.find(
+      (p) =>
+        p.id === workOrId ||
+        p.workId.toLowerCase() === workOrId.toLowerCase() ||
+        p.title.toLowerCase().includes(workOrId.toLowerCase())
+    );
+    if (found) {
+      setInspectedProject(found);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-gray-900 antialiased selection:bg-blue-900 selection:text-white">
       {/* Top Government Navigation Header */}
@@ -177,10 +246,71 @@ export default function App() {
         onOpenLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
         alertsCount={allAlerts.length}
+        onOpenGrievanceTracker={() => {
+          setTrackingGrievanceId('');
+          setIsGrievanceTrackerOpen(true);
+        }}
+        onToggleAiAssistant={() => setIsAiAssistantOpen((prev) => !prev)}
+        onSelectProject={handleSelectProjectById}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Early Initialization Diagnostics Banner */}
+        {initErrors.length > 0 && (
+          <div className="mb-6 bg-amber-50 border border-amber-300 rounded-lg p-4 text-amber-900 shadow-2xs">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <AlertOctagon className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                    System Initialization & Configuration Notice ({initErrors.length} Diagnostic Warning{initErrors.length > 1 ? 's' : ''})
+                  </h3>
+                  <p className="text-xs text-amber-800 mt-1">
+                    The error logging service captured early initialization or configuration events during bootstrap. Check browser console for detailed stack traces.
+                  </p>
+                  
+                  {showInitDiagnostics && (
+                    <div className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-2">
+                      {initErrors.map((err) => (
+                        <div key={err.id} className="p-2.5 bg-white/80 rounded border border-amber-200 text-[11px] font-mono">
+                          <div className="flex items-center justify-between font-bold text-gray-800 mb-1">
+                            <span className="uppercase px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px]">
+                              {err.type} • {err.phase || 'startup'}
+                            </span>
+                            <span className="text-[10px] text-gray-500 font-normal">
+                              {new Date(err.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <p className="text-gray-900 font-sans">{err.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowInitDiagnostics((prev) => !prev)}
+                  className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded transition-colors"
+                >
+                  {showInitDiagnostics ? 'Hide Details' : 'View Details'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInitErrors([])}
+                  className="p-1 text-amber-700 hover:text-amber-900 hover:bg-amber-200 rounded transition-colors"
+                  title="Dismiss notice"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* VIEW 1: PUBLIC PORTAL (eSAKSHI Style) */}
         {activeView === 'public' && (
           <div className="space-y-6">
@@ -472,11 +602,46 @@ export default function App() {
       <ProjectDetailModal
         project={inspectedProject}
         feedbackList={allFeedback}
+        user={user}
         onClose={() => setInspectedProject(null)}
         onOpenGrievanceForm={(p) => {
           setInspectedProject(null);
           setActiveView('feedback');
         }}
+        onOpenScheduleInspection={(p) => setScheduleInspectionProject(p)}
+        onOpenRecordInspection={(insp) => setRecordingInspection(insp)}
+      />
+
+      {/* AI Assistant Chatbot Drawer/Widget */}
+      <AiAssistantChatbot
+        user={user}
+        isOpen={isAiAssistantOpen}
+        onToggle={() => setIsAiAssistantOpen((prev) => !prev)}
+        onSelectProject={handleSelectProjectById}
+      />
+
+      {/* Public Citizen Grievance Tracker */}
+      <GrievanceTrackerModal
+        isOpen={isGrievanceTrackerOpen}
+        onClose={() => setIsGrievanceTrackerOpen(false)}
+        initialGrievanceId={trackingGrievanceId}
+        onSelectProject={handleSelectProjectById}
+      />
+
+      {/* Schedule Field Inspection Modal */}
+      <ScheduleInspectionModal
+        isOpen={!!scheduleInspectionProject}
+        project={scheduleInspectionProject}
+        onClose={() => setScheduleInspectionProject(null)}
+        onInspectionScheduled={loadPortalData}
+      />
+
+      {/* Record Inspection Findings Modal */}
+      <RecordInspectionModal
+        isOpen={!!recordingInspection}
+        inspection={recordingInspection}
+        onClose={() => setRecordingInspection(null)}
+        onFindingsRecorded={loadPortalData}
       />
 
       {/* Official Government Portal Footer */}
