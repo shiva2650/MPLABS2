@@ -1,539 +1,516 @@
 import React, { useState } from 'react';
-import { Project, UserProfile } from '../types';
-import { ApiService } from '../services/api';
+import { User, Project, PhotoStage } from '../types/index.ts';
 import {
-  Upload,
+  updateProjectProgress,
+  recordProjectExpenditure,
+  verifyPhotoUpload
+} from '../services/api.ts';
+import {
+  Building2,
   Camera,
-  CheckCircle,
-  AlertTriangle,
+  UploadCloud,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  IndianRupee,
   MapPin,
+  ShieldCheck,
   Clock,
-  Layers,
-  FileCheck,
-  Eye,
-  Sliders,
-  Sparkles,
+  Layers
 } from 'lucide-react';
 
 interface AgencyDashboardProps {
-  currentUser: UserProfile;
+  user: User;
   projects: Project[];
-  onSelectProject: (project: Project) => void;
-  onRefresh: () => void;
+  onSelectProject: (p: Project) => void;
+  onRefreshData: () => void;
 }
 
 export const AgencyDashboard: React.FC<AgencyDashboardProps> = ({
-  currentUser,
+  user,
   projects,
   onSelectProject,
-  onRefresh,
+  onRefreshData
 }) => {
-  // Filter only projects assigned to this agency
-  const assignedProjects = projects.filter(
-    (p) => p.implementingAgencyId === currentUser.agencyId
-  );
+  const [selectedProject, setSelectedProject] = useState<Project | null>(projects[0] || null);
 
-  // Selected project for action
-  const [activeProject, setActiveProject] = useState<Project | null>(
-    assignedProjects[0] || null
-  );
+  // Progress Update Form state
+  const [progressPercent, setProgressPercent] = useState<number>(selectedProject?.completionPercentage || 0);
+  const [progressNotes, setProgressNotes] = useState('');
+  const [updatingProgress, setUpdatingProgress] = useState(false);
 
-  // Progress update state
-  const [progressVal, setProgressVal] = useState<number>(activeProject?.progressPercentage || 50);
-  const [stageNotes, setStageNotes] = useState<string>('');
-  const [expenditureAdd, setExpenditureAdd] = useState<string>('');
-  const [updatingProgress, setUpdatingProgress] = useState<boolean>(false);
-  const [progressSuccess, setProgressSuccess] = useState<string | null>(null);
+  // Expenditure Form state
+  const [expenditureAmount, setExpenditureAmount] = useState('');
+  const [sanctionOrderNo, setSanctionOrderNo] = useState('');
+  const [recordingExpenditure, setRecordingExpenditure] = useState(false);
 
-  // Photo upload state
-  const [photoCaption, setPhotoCaption] = useState<string>('Site progress execution');
-  const [photoStage, setPhotoStage] = useState<string>('During Execution');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState<boolean>(false);
-  const [uploadResult, setUploadResult] = useState<any | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Photo Upload & Verification state
+  const [photoStage, setPhotoStage] = useState<PhotoStage>('During-Work');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoNotes, setPhotoNotes] = useState('');
+  const [verifyingPhoto, setVerifyingPhoto] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<any | null>(null);
 
-  const handleProjectSelect = (p: Project) => {
-    setActiveProject(p);
-    setProgressVal(p.progressPercentage);
-    setUploadResult(null);
-    setProgressSuccess(null);
-    setUploadError(null);
+  // Notifications
+  const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
+
+  const handleSelectWork = (p: Project) => {
+    setSelectedProject(p);
+    setProgressPercent(p.completionPercentage);
+    setVerificationResult(null);
+    setPhotoFile(null);
+    setPhotoPreview(null);
   };
 
-  const handleProgressUpdate = async (e: React.FormEvent) => {
+  const handleProgressSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeProject) return;
+    if (!selectedProject) return;
     setUpdatingProgress(true);
-    setProgressSuccess(null);
-
     try {
-      const updated = await ApiService.updateProgress(
-        activeProject.id,
-        progressVal,
-        stageNotes,
-        expenditureAdd ? parseFloat(expenditureAdd) : undefined
-      );
-      setActiveProject(updated);
-      setProgressSuccess(`Physical progress successfully updated to ${progressVal}%.`);
-      setStageNotes('');
-      setExpenditureAdd('');
-      onRefresh();
+      await updateProjectProgress(selectedProject.id, {
+        percentage: Number(progressPercent),
+        description: progressNotes || 'Measurement Book (MB) physical inspection updated.'
+      });
+      setStatusFeedback(`Physical progress recorded for ${selectedProject.workId}: ${progressPercent}%`);
+      setProgressNotes('');
+      onRefreshData();
     } catch (err: any) {
-      alert(err.message || 'Progress update failed.');
+      alert(err.message || 'Failed to update progress.');
     } finally {
       setUpdatingProgress(false);
     }
   };
 
-  const handlePhotoUploadSubmit = async (simulationOverride?: string) => {
-    if (!activeProject) return;
-    setUploadingPhoto(true);
-    setUploadError(null);
-    setUploadResult(null);
-
+  const handleExpenditureSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProject || !expenditureAmount) return;
+    setRecordingExpenditure(true);
     try {
-      let fileToUpload = selectedFile;
-
-      // If no file selected but simulation triggered, generate dummy 1x1 png file
-      if (!fileToUpload) {
-        const dummyCanvas = document.createElement('canvas');
-        dummyCanvas.width = 100;
-        dummyCanvas.height = 100;
-        const ctx = dummyCanvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#0284c7';
-          ctx.fillRect(0, 0, 100, 100);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '10px sans-serif';
-          ctx.fillText('MPLADS SITE', 10, 50);
-        }
-        const blob = await new Promise<Blob>((resolve) =>
-          dummyCanvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg')
-        );
-        fileToUpload = new File([blob], 'site_inspection.jpg', { type: 'image/jpeg' });
-      }
-
-      const res = await ApiService.uploadPhoto(
-        activeProject.id,
-        fileToUpload,
-        photoCaption,
-        photoStage,
-        simulationOverride
-      );
-
-      setUploadResult(res.verification);
-      setSelectedFile(null);
-      onRefresh();
-
-      // Refresh active project instance
-      const refreshed = await ApiService.getProjectById(activeProject.id);
-      setActiveProject(refreshed);
+      await recordProjectExpenditure(selectedProject.id, {
+        amount: Number(expenditureAmount),
+        sanctionOrderNo
+      });
+      setStatusFeedback(`Expenditure of ₹${Number(expenditureAmount).toLocaleString()} booked against ${selectedProject.workId}`);
+      setExpenditureAmount('');
+      setSanctionOrderNo('');
+      onRefreshData();
     } catch (err: any) {
-      setUploadError(err.message || 'Photo upload failed.');
+      alert(err.message || 'Failed to record expenditure.');
     } finally {
-      setUploadingPhoto(false);
+      setRecordingExpenditure(false);
     }
   };
 
+  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+      setVerificationResult(null);
+    }
+  };
+
+  const handlePhotoVerifyAndUpload = async () => {
+    if (!selectedProject || !photoFile) {
+      alert('Please select an inspection photo file.');
+      return;
+    }
+
+    setVerifyingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('photo', photoFile);
+      formData.append('projectId', selectedProject.id);
+      formData.append('stage', photoStage);
+      formData.append('notes', photoNotes || 'Inspection site photo');
+
+      const result = await verifyPhotoUpload(formData);
+      setVerificationResult(result);
+      setStatusFeedback(`Inspection photo processed! Status: ${result.status}`);
+      onRefreshData();
+    } catch (err: any) {
+      alert(err.message || 'Photo verification failed.');
+    } finally {
+      setVerifyingPhoto(false);
+    }
+  };
+
+  const formatLakhs = (val: number) => `₹${(val / 100000).toFixed(2)} L`;
+
   return (
     <div className="space-y-6">
-      {/* Agency Identity Header */}
-      <div className="bg-white border border-stone-200 rounded-lg p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded text-[11px] font-bold">
-              Executing Agency Workspace
-            </span>
-            <span className="text-xs text-stone-500 font-medium">
-              Agency Code: {currentUser.agencyId} • District: {currentUser.district}
-            </span>
+      {/* Implementing Agency Banner */}
+      <div className="bg-gradient-to-r from-emerald-950 to-teal-900 text-white p-5 rounded-lg shadow-xs border-b-4 border-emerald-500">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs bg-emerald-500 text-slate-950 font-extrabold px-2 py-0.5 rounded uppercase">
+                Implementing Agency
+              </span>
+              <span className="text-xs text-emerald-200">
+                {user.agencyName || 'PWD Rural Works Division'} • {user.district}, {user.state}
+              </span>
+            </div>
+            <h2 className="text-xl font-extrabold">{user.name}</h2>
+            <p className="text-xs text-emerald-200 mt-0.5">
+              Measurement Book (MB) Entries, Milestone Invoicing & Geo-Tagged Site Inspections
+            </p>
           </div>
-          <h2 className="text-xl font-bold text-stone-900 mt-1">
-            {currentUser.agencyName || currentUser.name}
-          </h2>
-          <p className="text-xs text-stone-600 mt-0.5">
-            Field Inspection, Physical Progress Reporting &amp; Geotagged Photographic Verification Portal
-          </p>
-        </div>
 
-        <div className="text-xs text-right bg-stone-50 p-2.5 rounded border border-stone-200">
-          <div className="text-stone-500">Assigned Execution Portfolio</div>
-          <div className="font-bold text-stone-900 font-mono text-sm">
-            {assignedProjects.length} Works Assigned
+          <div className="bg-white/10 px-4 py-2 rounded-md border border-white/20 text-xs">
+            <span className="font-bold text-amber-300">{projects.length}</span> Works Assigned
           </div>
         </div>
       </div>
 
-      {/* Main Two-Column Workflow Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Assigned Works Selector */}
-        <div className="lg:col-span-4 bg-white border border-stone-200 rounded-lg p-4 shadow-xs space-y-3">
-          <div className="flex items-center justify-between border-b border-stone-200 pb-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-700">
-              Assigned Works ({assignedProjects.length})
-            </h3>
-            <span className="text-[11px] text-stone-500">Select to manage</span>
+      {statusFeedback && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-md text-xs font-medium flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{statusFeedback}</span>
           </div>
+          <button onClick={() => setStatusFeedback(null)} className="text-emerald-700 hover:text-emerald-900 text-xs font-bold">
+            Dismiss
+          </button>
+        </div>
+      )}
 
-          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-            {assignedProjects.map((p) => {
-              const isSelected = activeProject?.id === p.id;
-              return (
-                <div
-                  key={p.id}
-                  onClick={() => handleProjectSelect(p)}
-                  className={`p-3 rounded-md border cursor-pointer transition-colors text-xs ${
-                    isSelected
-                      ? 'bg-sky-50/80 border-sky-600 shadow-xs'
-                      : 'bg-stone-50 border-stone-200 hover:bg-stone-100'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-1 mb-1">
-                    <span className="font-bold text-stone-900 line-clamp-1">{p.title}</span>
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-bold shrink-0 ${
-                        p.status === 'Completed'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : p.status === 'Ongoing'
-                          ? 'bg-blue-100 text-blue-800'
-                          : p.status === 'Delayed'
-                          ? 'bg-orange-100 text-orange-800'
-                          : 'bg-stone-200 text-stone-700'
-                      }`}
-                    >
-                      {p.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-stone-500 mb-1.5">
-                    {p.workCode} • {p.sector}
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-stone-600">
-                    <span>Sanctioned: ₹{p.sanctionedCostLakhs}L</span>
-                    <span className="font-bold text-sky-900">{p.progressPercentage}% Completed</span>
-                  </div>
-                </div>
-              );
-            })}
+      {/* Main Two-Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: Assigned Works Selector */}
+        <div className="lg:col-span-4 space-y-3">
+          <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-2xs">
+            <h3 className="text-xs font-extrabold text-gray-900 uppercase tracking-wider mb-2">
+              Assigned Works Queue ({projects.length})
+            </h3>
+            <p className="text-[11px] text-gray-500 mb-3">
+              Select an asset to update physical progress or upload geo-inspections.
+            </p>
 
-            {assignedProjects.length === 0 && (
-              <div className="text-center py-8 text-stone-500 text-xs">
-                No developmental works assigned to this agency yet.
-              </div>
-            )}
+            <div className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
+              {projects.map((proj) => {
+                const isSelected = selectedProject?.id === proj.id;
+                return (
+                  <div
+                    key={proj.id}
+                    onClick={() => handleSelectWork(proj)}
+                    className={`p-3 rounded-md border text-left cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-blue-50/80 border-blue-600 shadow-xs'
+                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100/70'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[10px] mb-1">
+                      <span className="font-bold text-blue-900">{proj.workId}</span>
+                      <span
+                        className={`font-bold px-1.5 py-0.2 rounded uppercase ${
+                          proj.status === 'Completed'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : proj.status === 'Delayed'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        {proj.status}
+                      </span>
+                    </div>
+
+                    <h4 className="text-xs font-bold text-gray-900 line-clamp-1">{proj.title}</h4>
+                    <div className="text-[10px] text-gray-500 mt-1 flex items-center justify-between">
+                      <span>Progress: {proj.completionPercentage}%</span>
+                      <span className="font-semibold text-gray-700">{formatLakhs(proj.sanctionedCost)}</span>
+                    </div>
+
+                    {/* Progress mini bar */}
+                    <div className="w-full bg-gray-200 rounded-full h-1 mt-1.5 overflow-hidden">
+                      <div
+                        className="h-1 bg-emerald-600 rounded-full"
+                        style={{ width: `${proj.completionPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        {/* Right: Active Project Execution Management & Photo Verification */}
-        {activeProject ? (
-          <div className="lg:col-span-8 space-y-6">
-            {/* Active Project Header Strip */}
-            <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 pb-3 mb-3">
-                <div>
-                  <div className="text-[11px] font-mono text-stone-500">{activeProject.workCode}</div>
-                  <h3 className="text-base font-bold text-stone-900">{activeProject.title}</h3>
-                  <div className="text-xs text-stone-600 flex items-center gap-2 mt-0.5">
-                    <MapPin className="w-3.5 h-3.5 text-stone-400" />
-                    <span>{activeProject.locationName}</span>
-                    <span>• Sanctioned: ₹{activeProject.sanctionedCostLakhs.toFixed(2)} Lakhs</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => onSelectProject(activeProject)}
-                  className="px-3 py-1.5 text-xs font-semibold text-sky-900 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded transition-colors shrink-0 inline-flex items-center gap-1.5"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  View Dossier
-                </button>
-              </div>
-
-              {/* Progress Slider & Update Form */}
-              <form onSubmit={handleProgressUpdate} className="space-y-4 text-xs">
-                {progressSuccess && (
-                  <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{progressSuccess}</span>
-                  </div>
-                )}
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="font-bold text-stone-800 flex items-center gap-1.5">
-                      <Sliders className="w-3.5 h-3.5 text-sky-800" />
-                      Physical Execution Progress:
-                    </label>
-                    <span className="text-base font-bold text-sky-900 font-mono">
-                      {progressVal}%
+        {/* Right Column: Work Operations Console */}
+        <div className="lg:col-span-8 space-y-4">
+          {selectedProject ? (
+            <>
+              {/* Selected Work Header Details */}
+              <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-2xs">
+                <div className="flex items-start justify-between gap-3 pb-3 mb-3 border-b border-gray-100">
+                  <div>
+                    <span className="text-[10px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 uppercase">
+                      {selectedProject.workId}
                     </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="5"
-                    value={progressVal}
-                    onChange={(e) => setProgressVal(parseInt(e.target.value, 10))}
-                    className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-sky-900"
-                  />
-                  <div className="flex justify-between text-[10px] text-stone-400 mt-1 font-mono">
-                    <span>0% (Commencing)</span>
-                    <span>25% (Foundation)</span>
-                    <span>50% (Superstructure)</span>
-                    <span>75% (Finishing)</span>
-                    <span>100% (Completed)</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold text-stone-700 mb-1">
-                      Stage Milestone Observations &amp; Notes
-                    </label>
-                    <input
-                      type="text"
-                      value={stageNotes}
-                      onChange={(e) => setStageNotes(e.target.value)}
-                      placeholder="e.g. Foundation excavation and RCC casting completed"
-                      className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900"
-                    />
+                    <h3 className="text-base font-extrabold text-gray-900 mt-1">{selectedProject.title}</h3>
+                    <p className="text-xs text-gray-600">{selectedProject.locationAddress}</p>
                   </div>
 
-                  <div>
-                    <label className="block font-semibold text-stone-700 mb-1">
-                      Additional Expenditure Recorded (₹ in Lakhs)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={expenditureAdd}
-                      onChange={(e) => setExpenditureAdd(e.target.value)}
-                      placeholder="e.g. 5.5"
-                      className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
                   <button
-                    id="agency-submit-progress-btn"
-                    type="submit"
-                    disabled={updatingProgress}
-                    className="px-4 py-2 text-xs font-bold text-white bg-sky-900 hover:bg-sky-950 disabled:opacity-50 rounded shadow-xs transition-colors"
+                    onClick={() => onSelectProject(selectedProject)}
+                    className="px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-50 rounded border border-blue-300 shrink-0"
                   >
-                    {updatingProgress ? 'Updating...' : 'Record Physical Progress'}
+                    View Full File
                   </button>
                 </div>
-              </form>
-            </div>
 
-            {/* Photo Upload & AI GPS/EXIF Verification Engine Box */}
-            <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs space-y-4">
-              <div className="flex items-center justify-between border-b border-stone-200 pb-2">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-sky-100 text-sky-900 rounded">
-                    <Camera className="w-4 h-4" />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="bg-gray-50 p-2 rounded">
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Sanctioned Cost</span>
+                    <div className="font-extrabold text-blue-950">{formatLakhs(selectedProject.sanctionedCost)}</div>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-stone-800">
-                      Geotagged Progress Photo Upload &amp; Verification
-                    </h4>
-                    <p className="text-[11px] text-stone-500">
-                      Server-side EXIF inspection, Perceptual Hash reuse check, and GPS Haversine verification
-                    </p>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Utilized</span>
+                    <div className="font-extrabold text-emerald-800">{formatLakhs(selectedProject.utilizedCost)}</div>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Physical Progress</span>
+                    <div className="font-extrabold text-gray-900">{selectedProject.completionPercentage}%</div>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Assigned Vendor</span>
+                    <div className="font-bold text-gray-800 truncate">{selectedProject.vendorName || 'Unassigned'}</div>
                   </div>
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-900 rounded border border-purple-200">
-                  AI Integrity Engine
-                </span>
               </div>
 
-              {uploadError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-800 flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                  <span>{uploadError}</span>
+              {/* ACTION 1: Physical Progress & MB Entry */}
+              <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-2xs">
+                <div className="flex items-center gap-2 pb-3 mb-4 border-b border-gray-100">
+                  <FileText className="w-4 h-4 text-blue-900" />
+                  <h4 className="text-sm font-bold text-gray-900">Record Measurement Book (MB) Entry</h4>
                 </div>
-              )}
 
-              {/* Verification Outcome Card */}
-              {uploadResult && (
-                <div
-                  className={`p-3.5 rounded-md border text-xs space-y-1.5 ${
-                    uploadResult.status === 'Verified'
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                      : uploadResult.status === 'Location Mismatch'
-                      ? 'bg-red-50 border-red-300 text-red-900'
-                      : 'bg-amber-50 border-amber-300 text-amber-900'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm flex items-center gap-1.5">
-                      {uploadResult.status === 'Verified' ? (
-                        <CheckCircle className="w-4 h-4 text-emerald-600" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-red-600" />
-                      )}
-                      Verification Outcome: {uploadResult.status}
-                    </span>
-                    {uploadResult.distanceMeters !== undefined && (
-                      <span className="font-mono text-xs font-bold">
-                        Distance: {uploadResult.distanceMeters} meters
-                      </span>
-                    )}
+                <form onSubmit={handleProgressSubmit} className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-xs font-bold text-gray-700 mb-1">
+                      <span>Physical Completion Percentage: {progressPercent}%</span>
+                      <span>Target: 100% Handover</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={progressPercent}
+                      onChange={(e) => setProgressPercent(Number(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
+                    />
                   </div>
-                  <div className="text-[11px]">
-                    {uploadResult.flagReasons.map((r: string, idx: number) => (
-                      <div key={idx}>• {r}</div>
-                    ))}
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                      Measurement Book Observation / Milestone Details
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="e.g. Foundation excavation completed. Reinforced concrete plinth beam inspection signed off by Asst. Engineer."
+                      value={progressNotes}
+                      onChange={(e) => setProgressNotes(e.target.value)}
+                      className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
+                    />
                   </div>
-                  {uploadResult.pHash && (
-                    <div className="text-[10px] font-mono text-stone-500 pt-1 border-t border-stone-200/60">
-                      Perceptual Hash: {uploadResult.pHash}
+
+                  <button
+                    type="submit"
+                    disabled={updatingProgress}
+                    className="py-2 px-4 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <span>{updatingProgress ? 'Updating MB...' : 'Record Physical Progress Entry'}</span>
+                  </button>
+                </form>
+              </div>
+
+              {/* ACTION 2: Upload Geo-Tagged Inspection Photo (Real Server-Side EXIF Verification) */}
+              <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-2xs">
+                <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-emerald-800" />
+                    <h4 className="text-sm font-bold text-gray-900">
+                      Geo-Tagged Site Photo Upload & AI EXIF Verification
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    Mandatory Section 6.2
+                  </span>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                        Inspection Stage *
+                      </label>
+                      <select
+                        value={photoStage}
+                        onChange={(e) => setPhotoStage(e.target.value as PhotoStage)}
+                        className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
+                      >
+                        <option value="Before-Work">Before-Work (Baseline Site)</option>
+                        <option value="During-Work">During-Work (Mid-Stage Construction)</option>
+                        <option value="After-Completion">After-Completion (Asset Ready)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                        Inspector Notes
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. North-facing elevation view"
+                        value={photoNotes}
+                        onChange={(e) => setPhotoNotes(e.target.value)}
+                        className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* File Selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                      Select Inspection Image (JPEG / PNG with EXIF) *
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      onChange={handlePhotoFileChange}
+                      className="w-full text-xs text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-900 hover:file:bg-blue-100"
+                    />
+                  </div>
+
+                  {photoPreview && (
+                    <div className="flex items-center gap-4 p-2 bg-gray-50 rounded border border-gray-200">
+                      <img
+                        src={photoPreview}
+                        alt="Inspection Preview"
+                        className="w-20 h-20 object-cover rounded border"
+                      />
+                      <div className="text-xs">
+                        <div className="font-bold text-gray-900">{photoFile?.name}</div>
+                        <div className="text-gray-500">{((photoFile?.size || 0) / 1024).toFixed(1)} KB</div>
+                        <div className="text-[11px] text-blue-900 mt-1">
+                          Ready for server-side EXIF GPS distance analysis
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handlePhotoVerifyAndUpload}
+                    disabled={verifyingPhoto || !photoFile}
+                    className="py-2.5 px-4 bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <UploadCloud className="w-4 h-4" />
+                    <span>{verifyingPhoto ? 'Extracting EXIF & Verifying...' : 'Verify EXIF & Upload Inspection Photo'}</span>
+                  </button>
+
+                  {/* Live Verification Result Card */}
+                  {verificationResult && (
+                    <div
+                      className={`p-4 rounded-lg border text-xs space-y-2 ${
+                        verificationResult.status === 'Verified'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                          : verificationResult.status === 'Mismatch'
+                          ? 'bg-red-50 border-red-200 text-red-950'
+                          : verificationResult.status === 'Suspicious'
+                          ? 'bg-amber-50 border-amber-200 text-amber-950'
+                          : 'bg-gray-100 border-gray-300 text-gray-900'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="text-sm">Verification Status: {verificationResult.status}</span>
+                        <span>
+                          Distance to Site:{' '}
+                          {verificationResult.distanceMeters !== null
+                            ? `${verificationResult.distanceMeters}m`
+                            : 'N/A'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] pt-2 border-t border-current/20">
+                        <div>
+                          Camera: {verificationResult.cameraMake || 'Unknown'}{' '}
+                          {verificationResult.cameraModel || ''}
+                        </div>
+                        <div>Software: {verificationResult.software || 'Original Firmware'}</div>
+                        <div>
+                          GPS:{' '}
+                          {verificationResult.extractedCoordinates
+                            ? `${verificationResult.extractedCoordinates.lat.toFixed(4)}°N, ${verificationResult.extractedCoordinates.lng.toFixed(4)}°E`
+                            : 'None (Stripped)'}
+                        </div>
+                        <div>
+                          Perceptual Hash: {verificationResult.perceptualHash?.substring(0, 8)}...
+                        </div>
+                      </div>
+
+                      <div className="pt-1 text-[11px] italic">
+                        {verificationResult.reasons?.join(' | ')}
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="block font-semibold text-stone-700 mb-1">
-                    Photo Stage Category *
-                  </label>
-                  <select
-                    value={photoStage}
-                    onChange={(e) => setPhotoStage(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-300 rounded bg-white text-stone-900"
-                  >
-                    <option value="Before Commencement">Before Commencement</option>
-                    <option value="During Execution">During Execution</option>
-                    <option value="Near Completion">Near Completion</option>
-                    <option value="Completed Asset">Completed Asset (Final)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-stone-700 mb-1">
-                    Photo Caption &amp; Milestone Label
-                  </label>
-                  <input
-                    type="text"
-                    value={photoCaption}
-                    onChange={(e) => setPhotoCaption(e.target.value)}
-                    placeholder="e.g. Laying of bitumin macadam layer"
-                    className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900"
-                  />
-                </div>
               </div>
 
-              {/* File Input Selection */}
-              <div>
-                <label className="block font-semibold text-stone-700 mb-1 text-xs">
-                  Select Inspection Image (JPEG with EXIF geotags)
-                </label>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-stone-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-stone-800 hover:file:bg-stone-200 border border-stone-300 rounded p-1"
-                />
-              </div>
-
-              {/* Verification Simulation Buttons (For testing verification with 1 click) */}
-              <div className="p-3 bg-stone-100 rounded border border-stone-200 space-y-2 text-xs">
-                <div className="font-bold text-stone-800 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-700" />
-                  Instant Verification Test Triggers (Demo Workbench):
+              {/* ACTION 3: Record Expenditure / Submit Bill */}
+              <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-2xs">
+                <div className="flex items-center gap-2 pb-3 mb-4 border-b border-gray-100">
+                  <IndianRupee className="w-4 h-4 text-blue-900" />
+                  <h4 className="text-sm font-bold text-gray-900">Record Expenditure / Disbursal</h4>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handlePhotoUploadSubmit('PASS_GPS')}
-                    disabled={uploadingPhoto}
-                    className="p-2 bg-white hover:bg-emerald-50 border border-emerald-300 rounded text-left transition-colors"
-                  >
-                    <div className="font-bold text-emerald-800">Test Authentic (Pass)</div>
-                    <div className="text-[10px] text-stone-500">GPS within 32m of site</div>
-                  </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handlePhotoUploadSubmit('FAIL_GPS')}
-                    disabled={uploadingPhoto}
-                    className="p-2 bg-white hover:bg-red-50 border border-red-300 rounded text-left transition-colors"
-                  >
-                    <div className="font-bold text-red-800">Test Location Mismatch</div>
-                    <div className="text-[10px] text-stone-500">GPS 8.4 km away from site</div>
-                  </button>
+                <form onSubmit={handleExpenditureSubmit} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                        Amount to Disburse (INR ₹) *
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 500000"
+                        value={expenditureAmount}
+                        onChange={(e) => setExpenditureAmount(e.target.value)}
+                        className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md font-bold text-gray-900"
+                      />
+                    </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handlePhotoUploadSubmit('FAIL_EXIF')}
-                    disabled={uploadingPhoto}
-                    className="p-2 bg-white hover:bg-amber-50 border border-amber-300 rounded text-left transition-colors"
-                  >
-                    <div className="font-bold text-amber-800">Test Stripped EXIF</div>
-                    <div className="text-[10px] text-stone-500">Unverifiable metadata</div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => handlePhotoUploadSubmit()}
-                  disabled={uploadingPhoto || !selectedFile}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-sky-900 hover:bg-sky-950 disabled:opacity-40 rounded shadow-xs transition-colors"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  {uploadingPhoto ? 'Verifying & Uploading...' : 'Upload & Verify Photo'}
-                </button>
-              </div>
-
-              {/* Uploaded Photos Gallery */}
-              {activeProject.photos && activeProject.photos.length > 0 && (
-                <div className="pt-3 border-t border-stone-200">
-                  <div className="text-xs font-bold text-stone-800 mb-2">
-                    Verified Progress Photographs ({activeProject.photos.length})
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                        Sanction Order / Bill Reference *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. MPLADS/2024/SO-821"
+                        value={sanctionOrderNo}
+                        onChange={(e) => setSanctionOrderNo(e.target.value)}
+                        className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
+                      />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {activeProject.photos.map((ph) => (
-                      <div
-                        key={ph.id}
-                        className="bg-stone-50 border border-stone-200 rounded overflow-hidden text-[11px]"
-                      >
-                        <img
-                          src={ph.url}
-                          alt={ph.caption}
-                          className="w-full h-28 object-cover bg-stone-200"
-                        />
-                        <div className="p-2 space-y-1">
-                          <div className="font-bold text-stone-900 truncate">{ph.caption}</div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-stone-500">{ph.stage}</span>
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                                ph.verification.status === 'Verified'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-red-100 text-red-800'
-                              }`}
-                            >
-                              {ph.verification.status}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+
+                  <button
+                    type="submit"
+                    disabled={recordingExpenditure}
+                    className="py-2 px-4 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <span>{recordingExpenditure ? 'Recording...' : 'Book Expenditure Against Sanction'}</span>
+                  </button>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div className="p-12 text-center bg-white rounded-lg border text-gray-500 text-xs">
+              No works assigned to this agency.
             </div>
-          </div>
-        ) : (
-          <div className="lg:col-span-8 bg-white border border-stone-200 rounded-lg p-8 text-center text-stone-500 text-xs">
-            Please select an assigned developmental work from the left panel to update progress or upload verification photos.
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

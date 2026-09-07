@@ -1,544 +1,740 @@
-import React, { useState } from 'react';
-import { Project, UserProfile, AnomalyAlert } from '../types';
-import { ApiService } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { User, Project, Alert, AuditLogEntry, VendorAnalytics } from '../types/index.ts';
 import {
-  CheckCircle,
+  updateProjectStatus,
+  reviewAlert,
+  fetchAuditLogs,
+  fetchVendorAnalytics
+} from '../services/api.ts';
+import { VendorAnalyticsView } from './VendorAnalyticsView.tsx';
+import {
+  ShieldAlert,
+  FileCheck2,
+  CheckCircle2,
   XCircle,
-  UserCheck,
-  AlertTriangle,
   Building,
-  ShieldCheck,
-  FileCheck,
-  Clock,
-  Eye,
+  UserCheck,
+  History,
+  TrendingUp,
+  Download,
+  AlertTriangle,
+  ChevronRight,
+  Filter,
   Check,
+  MessageSquare,
+  Briefcase
 } from 'lucide-react';
 
 interface AdminDashboardProps {
-  currentUser: UserProfile;
+  user: User;
   projects: Project[];
-  alerts: AnomalyAlert[];
-  onSelectProject: (project: Project) => void;
-  onNavigate: (view: string) => void;
-  onRefresh: () => void;
+  alerts: Alert[];
+  onSelectProject: (p: Project) => void;
+  onRefreshData: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
-  currentUser,
+  user,
   projects,
   alerts,
   onSelectProject,
-  onNavigate,
-  onRefresh,
+  onRefreshData
 }) => {
-  // Jurisdiction projects (Hyderabad District Authority)
-  const districtProjects = projects.filter((p) =>
-    currentUser.district ? p.district.toLowerCase() === currentUser.district.toLowerCase() : true
-  );
+  const [activeTab, setActiveTab] = useState<'approvals' | 'alerts' | 'vendors' | 'audit'>('approvals');
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [vendors, setVendors] = useState<VendorAnalytics[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const pendingRecommendations = districtProjects.filter(
-    (p) => p.status === 'Recommended' || p.status === 'Under Review'
-  );
-  const sanctionedUnassigned = districtProjects.filter(
-    (p) => p.status === 'Sanctioned' && !p.implementingAgencyId
-  );
-  const highRiskAlerts = alerts.filter(
-    (a) => a.riskLevel === 'HIGH' || a.riskLevel === 'CRITICAL'
-  );
+  // Sanctioning Modal state
+  const [selectedProjectForSanction, setSelectedProjectForSanction] = useState<Project | null>(null);
+  const [sanctionCost, setSanctionCost] = useState('');
+  const [agencyName, setAgencyName] = useState('PWD Rural Works Division');
+  const [vendorName, setVendorName] = useState('Venkateshwara Infratech Pvt Ltd');
+  const [decisionNotes, setDecisionNotes] = useState('');
+  const [submittingAction, setSubmittingAction] = useState(false);
 
-  // Sanction Modal State
-  const [activeSanctionProject, setActiveSanctionProject] = useState<Project | null>(null);
-  const [sanctionAction, setSanctionAction] = useState<'APPROVE' | 'REJECT'>('APPROVE');
-  const [sanctionCost, setSanctionCost] = useState<string>('');
-  const [sanctionRemarks, setSanctionRemarks] = useState<string>('');
-  const [processingSanction, setProcessingSanction] = useState<boolean>(false);
+  // Alert Review Modal state
+  const [selectedAlertForReview, setSelectedAlertForReview] = useState<Alert | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<'Valid' | 'False Positive' | 'Needs More Info' | 'Escalated'>('Valid');
+  const [reviewNotes, setReviewNotes] = useState('');
 
-  // Agency Assignment Modal State
-  const [activeAssignProject, setActiveAssignProject] = useState<Project | null>(null);
-  const [selectedAgency, setSelectedAgency] = useState<string>('IA-HYD-001');
-  const [vendorName, setVendorName] = useState<string>('Deccan Infra Tech Ltd');
-  const [processingAssign, setProcessingAssign] = useState<boolean>(false);
+  // Notification feedback
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
-  const handleSanctionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeSanctionProject) return;
-    setProcessingSanction(true);
-
-    try {
-      await ApiService.sanctionProject(
-        activeSanctionProject.id,
-        sanctionAction,
-        parseFloat(sanctionCost) || activeSanctionProject.estimatedCostLakhs,
-        sanctionRemarks
-      );
-      setActiveSanctionProject(null);
-      setSanctionRemarks('');
-      onRefresh();
-    } catch (err: any) {
-      alert(err.message || 'Sanction operation failed.');
-    } finally {
-      setProcessingSanction(false);
-    }
-  };
-
-  const handleAssignSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeAssignProject) return;
-    setProcessingAssign(true);
-
-    const agencyNames: Record<string, string> = {
-      'IA-HYD-001': 'Telangana State Roads & Development Corp (TSRDC)',
-      'IA-HYD-002': 'Hyderabad Metropolitan Water Supply & Sewerage Board (HMWSSB)',
-      'IA-HYD-003': 'Greater Hyderabad Municipal Corporation Engineering Dept (GHMC)',
+  // Load audit logs and vendor stats on mount/tab change
+  useEffect(() => {
+    const loadSubData = async () => {
+      try {
+        const [logsData, vendorData] = await Promise.all([
+          fetchAuditLogs(),
+          fetchVendorAnalytics()
+        ]);
+        setAuditLogs(logsData);
+        setVendors(vendorData);
+      } catch (err) {
+        console.error('Failed to load admin supplemental data:', err);
+      }
     };
+    loadSubData();
+  }, [activeTab]);
 
+  const pendingProjects = projects.filter((p) => p.status === 'Recommended' || p.status === 'Under Review');
+  const openAlerts = alerts.filter((a) => a.status === 'Open' || a.status === 'Investigating');
+
+  const handleSanctionSubmit = async (approved: boolean) => {
+    if (!selectedProjectForSanction) return;
+    setSubmittingAction(true);
     try {
-      await ApiService.assignAgency(
-        activeAssignProject.id,
-        selectedAgency,
-        agencyNames[selectedAgency] || 'Municipal Engineering Division',
-        vendorName
-      );
-      setActiveAssignProject(null);
-      onRefresh();
+      if (approved) {
+        await updateProjectStatus(selectedProjectForSanction.id, {
+          status: 'Sanctioned',
+          sanctionedCost: Number(sanctionCost) || selectedProjectForSanction.estimatedCost,
+          agencyId: 'AGENCY001',
+          agencyName,
+          vendorName,
+          notes: decisionNotes
+        });
+        setFeedbackMsg(`Work ${selectedProjectForSanction.workId} administratively sanctioned.`);
+      } else {
+        await updateProjectStatus(selectedProjectForSanction.id, {
+          status: 'Rejected',
+          notes: decisionNotes || 'Proposal does not fulfill technical or financial feasibility guidelines.'
+        });
+        setFeedbackMsg(`Work ${selectedProjectForSanction.workId} marked as rejected.`);
+      }
+
+      setSelectedProjectForSanction(null);
+      setDecisionNotes('');
+      onRefreshData();
     } catch (err: any) {
-      alert(err.message || 'Agency assignment failed.');
+      alert(err.message || 'Action failed.');
     } finally {
-      setProcessingAssign(false);
+      setSubmittingAction(false);
     }
   };
+
+  const handleAlertReviewSubmit = async () => {
+    if (!selectedAlertForReview) return;
+    setSubmittingAction(true);
+    try {
+      await reviewAlert(selectedAlertForReview.id, {
+        status: reviewStatus,
+        reviewNotes
+      });
+      setFeedbackMsg(`Alert #${selectedAlertForReview.id} updated to status: ${reviewStatus}`);
+      setSelectedAlertForReview(null);
+      setReviewNotes('');
+      onRefreshData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to review alert.');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  const formatLakhs = (val: number) => `₹${(val / 100000).toFixed(2)} L`;
 
   return (
     <div className="space-y-6">
-      {/* Jurisdiction Header */}
-      <div className="bg-white border border-stone-200 rounded-lg p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded text-[11px] font-bold">
-              District Nodal Authority Workspace
-            </span>
-            <span className="text-xs text-stone-500 font-medium">
-              District: {currentUser.district} • State: {currentUser.state}
-            </span>
-          </div>
-          <h2 className="text-xl font-bold text-stone-900 mt-1">
-            {currentUser.name}
-          </h2>
-          <p className="text-xs text-stone-600 mt-0.5">
-            {currentUser.designation} • Statutory Approval, Agency Assignment, and Oversight Authority
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onNavigate('alerts-center')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 rounded transition-colors"
-          >
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-            <span>Anomaly Review ({alerts.length})</span>
-          </button>
-          <button
-            onClick={() => onNavigate('reports-audit')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-stone-800 bg-stone-100 hover:bg-stone-200 border border-stone-300 rounded transition-colors"
-          >
-            <ShieldCheck className="w-4 h-4 text-stone-600" />
-            <span>Audit Trail</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Oversight Tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>Pending Recommendations</span>
-            <Clock className="w-4 h-4 text-amber-700" />
-          </div>
-          <div className="text-xl font-bold text-stone-900 font-mono mt-1">
-            {pendingRecommendations.length} Works
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">Awaiting Sanction / Feasibility</div>
-        </div>
-
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>Sanctioned • Unassigned</span>
-            <UserCheck className="w-4 h-4 text-indigo-700" />
-          </div>
-          <div className="text-xl font-bold text-indigo-900 font-mono mt-1">
-            {sanctionedUnassigned.length} Works
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">Requires Implementing Agency</div>
-        </div>
-
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>High Risk / Critical Alerts</span>
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-          </div>
-          <div className="text-xl font-bold text-red-700 font-mono mt-1">
-            {highRiskAlerts.length} Flagged
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">Requires Human Review</div>
-        </div>
-
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>Total Works in Jurisdiction</span>
-            <Building className="w-4 h-4 text-sky-800" />
-          </div>
-          <div className="text-xl font-bold text-stone-900 font-mono mt-1">
-            {districtProjects.length} Works
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">Across All Sectors</div>
-        </div>
-      </div>
-
-      {/* Section 1: Pending Recommendations Awaiting Action */}
-      <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-stone-200">
+      {/* Official District Authority Banner */}
+      <div className="bg-gradient-to-r from-slate-900 to-blue-950 text-white p-5 rounded-lg shadow-xs border-b-4 border-blue-600">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h3 className="text-sm font-bold text-stone-900">
-              Pending Recommendations Awaiting Administrative Sanction ({pendingRecommendations.length})
-            </h3>
-            <p className="text-xs text-stone-500">
-              Guidelines 2010 mandate technical scrutiny within 45 days of MP recommendation
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs bg-blue-600 text-white font-extrabold px-2 py-0.5 rounded uppercase">
+                District Authority
+              </span>
+              <span className="text-xs text-blue-200">
+                District Magistrate & Collector • {user.district}, {user.state}
+              </span>
+            </div>
+            <h2 className="text-xl font-extrabold">{user.name}</h2>
+            <p className="text-xs text-blue-200 mt-0.5">
+              Statutory Administrative Sanctions, Implementing Agency Oversight & Integrity Adjudication
             </p>
           </div>
-        </div>
 
-        <div className="border border-stone-200 rounded-md overflow-x-auto">
-          <table className="w-full text-left text-xs text-stone-700 border-collapse">
-            <thead className="bg-stone-100 text-stone-800 font-semibold uppercase text-[10px] tracking-wider border-b border-stone-200">
-              <tr>
-                <th className="p-2.5 border-r border-stone-200">Work Code</th>
-                <th className="p-2.5 border-r border-stone-200">Asset Title &amp; Location</th>
-                <th className="p-2.5 border-r border-stone-200">Sector</th>
-                <th className="p-2.5 border-r border-stone-200">Recommended By</th>
-                <th className="p-2.5 border-r border-stone-200 text-right">Cost (Lakhs)</th>
-                <th className="p-2.5 border-r border-stone-200 text-center">AI Risk</th>
-                <th className="p-2.5 text-center">District Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-200 bg-white">
-              {pendingRecommendations.map((p) => (
-                <tr key={p.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="p-2.5 font-mono text-stone-600 font-semibold border-r border-stone-200">
-                    {p.workCode}
-                  </td>
-                  <td className="p-2.5 border-r border-stone-200 max-w-xs">
-                    <div className="font-bold text-stone-900">{p.title}</div>
-                    <div className="text-[11px] text-stone-500 truncate">{p.locationName}</div>
-                  </td>
-                  <td className="p-2.5 border-r border-stone-200">{p.sector}</td>
-                  <td className="p-2.5 border-r border-stone-200 font-medium text-stone-800">
-                    {p.mpName}
-                  </td>
-                  <td className="p-2.5 text-right font-mono border-r border-stone-200 font-bold">
-                    ₹{p.estimatedCostLakhs.toFixed(2)}L
-                  </td>
-                  <td className="p-2.5 text-center border-r border-stone-200">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        p.riskLevel === 'CRITICAL' || p.riskLevel === 'HIGH'
-                          ? 'bg-red-100 text-red-800'
-                          : p.riskLevel === 'MEDIUM'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-emerald-100 text-emerald-800'
-                      }`}
-                    >
-                      {p.riskScore}/100
-                    </span>
-                  </td>
-                  <td className="p-2.5 text-center">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <button
-                        id={`admin-btn-sanction-${p.id}`}
-                        onClick={() => {
-                          setActiveSanctionProject(p);
-                          setSanctionCost(p.estimatedCostLakhs.toString());
-                        }}
-                        className="px-2.5 py-1 text-xs font-bold text-white bg-sky-900 hover:bg-sky-950 rounded shadow-xs transition-colors"
-                      >
-                        Sanction / Review
-                      </button>
-                      <button
-                        onClick={() => onSelectProject(p)}
-                        className="p-1 text-stone-500 hover:text-stone-800"
-                        title="View Full Details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <div className="bg-white/10 px-3 py-1.5 rounded border border-white/20">
+              <span className="text-amber-300 font-bold">{pendingProjects.length}</span> Pending Sanctions
+            </div>
+            <div className="bg-white/10 px-3 py-1.5 rounded border border-white/20">
+              <span className="text-rose-300 font-bold">{openAlerts.length}</span> Active AI Alerts
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {feedbackMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-md text-xs font-medium flex items-center justify-between">
+          <span>{feedbackMsg}</span>
+          <button onClick={() => setFeedbackMsg(null)} className="text-emerald-700 hover:text-emerald-900 text-xs font-bold">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Navigation Sub-Tabs */}
+      <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
+        <button
+          onClick={() => setActiveTab('approvals')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors ${
+            activeTab === 'approvals'
+              ? 'bg-blue-900 text-white'
+              : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+          }`}
+        >
+          <FileCheck2 className="w-3.5 h-3.5" />
+          <span>Work Sanction Pipeline ({pendingProjects.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('alerts')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors ${
+            activeTab === 'alerts'
+              ? 'bg-rose-900 text-white'
+              : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+          }`}
+        >
+          <ShieldAlert className="w-3.5 h-3.5" />
+          <span>AI Alerts & Adjudication ({alerts.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('vendors')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors ${
+            activeTab === 'vendors'
+              ? 'bg-blue-900 text-white'
+              : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5" />
+          <span>Vendor & Agency Risk Analytics</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('audit')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors ${
+            activeTab === 'audit'
+              ? 'bg-slate-900 text-white'
+              : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+          }`}
+        >
+          <History className="w-3.5 h-3.5" />
+          <span>Append-Only Audit Log</span>
+        </button>
+      </div>
+
+      {/* TAB 1: WORK APPROVAL & SANCTION PIPELINE */}
+      {activeTab === 'approvals' && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-2xs overflow-hidden">
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
+            <div>
+              <h3 className="text-sm font-extrabold text-gray-900">
+                MP Proposals Pending Administrative Sanction
+              </h3>
+              <p className="text-xs text-gray-600">
+                District Magistrate verification under MPLADS Guidelines Rule 2.11
+              </p>
+            </div>
+            <span className="text-xs bg-amber-100 text-amber-900 font-bold px-2.5 py-1 rounded-full">
+              {pendingProjects.length} Pending
+            </span>
+          </div>
+
+          {pendingProjects.length === 0 ? (
+            <div className="p-10 text-center text-gray-500 text-xs">
+              All recommended works have been processed. No proposals pending sanction.
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {pendingProjects.map((proj) => (
+                <div key={proj.id} className="p-4 hover:bg-blue-50/20 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        {proj.workId}
+                      </span>
+                      <span className="text-[10px] font-bold text-gray-600">
+                        Recommended by {proj.mpName} ({proj.constituency})
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                        {proj.category}
+                      </span>
                     </div>
-                  </td>
-                </tr>
-              ))}
 
-              {pendingRecommendations.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="p-6 text-center text-stone-500">
-                    No pending recommendations awaiting sanction in this jurisdiction.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    <h4 className="text-sm font-bold text-gray-900">{proj.title}</h4>
+                    <p className="text-xs text-gray-600">{proj.description}</p>
+                    <div className="text-[11px] text-gray-500">
+                      Location: <span className="font-semibold text-gray-700">{proj.locationAddress}</span>
+                    </div>
 
-      {/* Section 2: Sanctioned Works Requiring Agency Assignment */}
-      <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-stone-200">
-          <div>
-            <h3 className="text-sm font-bold text-stone-900">
-              Sanctioned Works Pending Agency Assignment ({sanctionedUnassigned.length})
-            </h3>
-            <p className="text-xs text-stone-500">
-              Select eligible government department / implementing agency as per guidelines
-            </p>
-          </div>
-        </div>
+                    <div className="flex items-center gap-4 text-xs pt-1">
+                      <div>
+                        Estimated: <span className="font-bold text-blue-950">{formatLakhs(proj.estimatedCost)}</span>
+                      </div>
+                      <div>
+                        AI Cost Check:{' '}
+                        <span className={proj.costAnomaly?.isAnomaly ? 'text-rose-700 font-bold' : 'text-emerald-700 font-semibold'}>
+                          {proj.costAnomaly?.isAnomaly ? `Outlier (z=${proj.costAnomaly.zScore})` : 'Normal Baseline'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
 
-        <div className="border border-stone-200 rounded-md overflow-x-auto">
-          <table className="w-full text-left text-xs text-stone-700 border-collapse">
-            <thead className="bg-stone-100 text-stone-800 font-semibold uppercase text-[10px] tracking-wider border-b border-stone-200">
-              <tr>
-                <th className="p-2.5 border-r border-stone-200">Work Code</th>
-                <th className="p-2.5 border-r border-stone-200">Work Title</th>
-                <th className="p-2.5 border-r border-stone-200">Sector</th>
-                <th className="p-2.5 border-r border-stone-200 text-right">Sanctioned Cost</th>
-                <th className="p-2.5 border-r border-stone-200">Sanction Date</th>
-                <th className="p-2.5 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-200 bg-white">
-              {sanctionedUnassigned.map((p) => (
-                <tr key={p.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="p-2.5 font-mono text-stone-600 font-semibold border-r border-stone-200">
-                    {p.workCode}
-                  </td>
-                  <td className="p-2.5 border-r border-stone-200 font-bold text-stone-900">
-                    {p.title}
-                  </td>
-                  <td className="p-2.5 border-r border-stone-200">{p.sector}</td>
-                  <td className="p-2.5 text-right font-mono border-r border-stone-200 font-bold text-indigo-900">
-                    ₹{p.sanctionedCostLakhs.toFixed(2)}L
-                  </td>
-                  <td className="p-2.5 border-r border-stone-200 text-stone-600">
-                    {p.sanctionDate || 'Recent'}
-                  </td>
-                  <td className="p-2.5 text-center">
+                  <div className="flex items-center gap-2 self-end md:self-center">
                     <button
-                      id={`admin-btn-assign-${p.id}`}
-                      onClick={() => setActiveAssignProject(p)}
-                      className="px-2.5 py-1 text-xs font-bold text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded transition-colors inline-flex items-center gap-1"
+                      onClick={() => onSelectProject(proj)}
+                      className="px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded border border-gray-300 transition-colors"
+                    >
+                      Inspect File
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedProjectForSanction(proj);
+                        setSanctionCost(String(proj.estimatedCost));
+                      }}
+                      className="px-3.5 py-1.5 text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white rounded shadow-2xs transition-colors flex items-center gap-1"
                     >
                       <UserCheck className="w-3.5 h-3.5" />
-                      Assign Agency
+                      <span>Sanction / Assign</span>
                     </button>
-                  </td>
-                </tr>
+                  </div>
+                </div>
               ))}
-
-              {sanctionedUnassigned.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-6 text-center text-stone-500">
-                    All sanctioned works have implementing agencies actively assigned.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modal: Administrative Sanction Action */}
-      {activeSanctionProject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
-          <div className="bg-white border border-stone-300 rounded-lg shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-4 bg-sky-950 text-white flex items-center justify-between">
-              <h3 className="text-sm font-bold">
-                Administrative Sanction Review • District Authority
-              </h3>
-              <button
-                onClick={() => setActiveSanctionProject(null)}
-                className="text-stone-300 hover:text-white text-lg font-bold"
-              >
-                &times;
-              </button>
             </div>
+          )}
+        </div>
+      )}
 
-            <form onSubmit={handleSanctionSubmit} className="p-5 space-y-4 text-xs">
-              <div className="bg-stone-50 p-3 rounded border border-stone-200 space-y-1">
-                <div className="font-bold text-stone-900 text-sm">
-                  {activeSanctionProject.title}
-                </div>
-                <div className="text-stone-600">
-                  <strong>Work Code:</strong> {activeSanctionProject.workCode} • <strong>Sector:</strong> {activeSanctionProject.sector}
-                </div>
-                <div className="text-stone-600">
-                  <strong>Recommended by:</strong> {activeSanctionProject.mpName}
-                </div>
-                <div className="text-stone-600">
-                  <strong>AI Risk Indicator:</strong> {activeSanctionProject.riskScore}/100 ({activeSanctionProject.riskLevel})
-                </div>
-              </div>
+      {/* TAB 2: AI INTEGRITY ALERTS & ADJUDICATION */}
+      {activeTab === 'alerts' && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-2xs overflow-hidden">
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
+            <div>
+              <h3 className="text-sm font-extrabold text-gray-900">
+                AI Anomaly Alerts Vigilance Queue
+              </h3>
+              <p className="text-xs text-gray-600">
+                Rule 6.4: Human review required for all statistical cost and geo-inspection flags
+              </p>
+            </div>
+            <span className="text-xs bg-rose-100 text-rose-900 font-bold px-2.5 py-1 rounded-full">
+              {alerts.length} Total Alerts
+            </span>
+          </div>
 
-              <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Sanction Decision *
-                </label>
-                <div className="grid grid-cols-2 gap-3">
+          <div className="divide-y divide-gray-100">
+            {alerts.map((alt) => (
+              <div key={alt.id} className="p-4 hover:bg-rose-50/20 transition-colors flex flex-col md:flex-row md:items-start justify-between gap-4">
+                <div className="space-y-1.5 max-w-3xl">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                      {alt.workId}
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                        alt.riskLevel === 'Critical'
+                          ? 'bg-red-600 text-white'
+                          : alt.riskLevel === 'High'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {alt.type} ({alt.riskLevel})
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                        alt.status === 'Open'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : alt.status === 'Valid'
+                          ? 'bg-red-100 text-red-900'
+                          : alt.status === 'False Positive'
+                          ? 'bg-emerald-100 text-emerald-900'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      Status: {alt.status}
+                    </span>
+                  </div>
+
+                  <h4 className="text-xs font-extrabold text-gray-900">{alt.projectTitle}</h4>
+                  <div className="text-xs text-rose-950 font-medium bg-rose-50 p-2 rounded border border-rose-100">
+                    <span className="font-bold">Automated Observation: </span>
+                    {alt.reason}
+                  </div>
+
+                  {alt.evidence && (
+                    <div className="text-[11px] text-gray-600 font-mono bg-gray-50 p-2 rounded border border-gray-200">
+                      {alt.evidence}
+                    </div>
+                  )}
+
+                  {alt.reviewNotes && (
+                    <div className="text-[11px] text-gray-700 bg-amber-50/60 p-2 rounded border border-amber-200">
+                      <span className="font-bold">Official Adjudication Note: </span>
+                      {alt.reviewNotes} (Reviewed by {alt.reviewedBy || 'District Magistrate'} on{' '}
+                      {new Date(alt.reviewedAt || Date.now()).toLocaleDateString()})
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
                   <button
-                    type="button"
-                    onClick={() => setSanctionAction('APPROVE')}
-                    className={`p-2.5 border rounded flex items-center justify-center gap-2 font-bold transition-colors ${
-                      sanctionAction === 'APPROVE'
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
-                        : 'bg-white border-stone-300 text-stone-700'
-                    }`}
+                    onClick={() => {
+                      const proj = projects.find((p) => p.id === alt.projectId);
+                      if (proj) onSelectProject(proj);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded border border-gray-300 transition-colors"
                   >
-                    <CheckCircle className="w-4 h-4 text-emerald-600" />
-                    Approve Sanction
+                    View Work
                   </button>
 
                   <button
-                    type="button"
-                    onClick={() => setSanctionAction('REJECT')}
-                    className={`p-2.5 border rounded flex items-center justify-center gap-2 font-bold transition-colors ${
-                      sanctionAction === 'REJECT'
-                        ? 'bg-red-50 border-red-500 text-red-800'
-                        : 'bg-white border-stone-300 text-stone-700'
-                    }`}
+                    onClick={() => {
+                      setSelectedAlertForReview(alt);
+                      setReviewNotes(alt.reviewNotes || '');
+                    }}
+                    className="px-3.5 py-1.5 text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white rounded shadow-2xs transition-colors flex items-center gap-1"
                   >
-                    <XCircle className="w-4 h-4 text-red-600" />
-                    Reject Work
+                    <span>Adjudicate / Review</span>
                   </button>
                 </div>
               </div>
-
-              {sanctionAction === 'APPROVE' && (
-                <div>
-                  <label className="block font-semibold text-stone-700 mb-1">
-                    Sanctioned Cost (₹ in Lakhs) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={sanctionCost}
-                    onChange={(e) => setSanctionCost(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900 font-mono"
-                    required
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Official Administrative Remarks &amp; Technical Sanction Number *
-                </label>
-                <textarea
-                  rows={3}
-                  value={sanctionRemarks}
-                  onChange={(e) => setSanctionRemarks(e.target.value)}
-                  placeholder="e.g. Technically sanctioned as per PWD Schedule of Rates. Feasibility verified by Executive Engineer."
-                  className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900"
-                  required
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200">
-                <button
-                  type="button"
-                  onClick={() => setActiveSanctionProject(null)}
-                  className="px-3.5 py-2 text-stone-700 hover:bg-stone-100 border border-stone-300 rounded font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  id="modal-submit-sanction-btn"
-                  type="submit"
-                  disabled={processingSanction}
-                  className="px-4 py-2 bg-sky-900 hover:bg-sky-950 disabled:opacity-50 text-white font-bold rounded shadow-xs"
-                >
-                  {processingSanction ? 'Submitting...' : 'Confirm Administrative Order'}
-                </button>
-              </div>
-            </form>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Modal: Agency Assignment */}
-      {activeAssignProject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
-          <div className="bg-white border border-stone-300 rounded-lg shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-4 bg-sky-950 text-white flex items-center justify-between">
-              <h3 className="text-sm font-bold">
-                Assign Implementing Agency • District Authority
+      {/* TAB 3: VENDOR & AGENCY RISK ANALYTICS */}
+      {activeTab === 'vendors' && (
+        <VendorAnalyticsView
+          vendors={vendors}
+          projects={projects}
+          currentUser={user}
+          onSelectProject={onSelectProject}
+          onSanctionWorkWithVendor={(vName, aName) => {
+            if (pendingProjects.length > 0) {
+              const target = pendingProjects[0];
+              setSelectedProjectForSanction(target);
+              setVendorName(vName);
+              setAgencyName(aName);
+              setSanctionCost(String(target.estimatedCost));
+            } else {
+              setFeedbackMsg(`Selected contractor: ${vName}. No works are currently awaiting administrative sanction.`);
+            }
+          }}
+          onRefreshData={async () => {
+            try {
+              const data = await fetchVendorAnalytics();
+              setVendors(data);
+            } catch (e) {
+              console.error(e);
+            }
+          }}
+        />
+      )}
+
+      {/* TAB 4: AUDIT LOG VIEWER */}
+      {activeTab === 'audit' && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-2xs overflow-hidden">
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
+            <div>
+              <h3 className="text-sm font-extrabold text-gray-900">
+                Cryptographic / Append-Only Governance Audit Trail
               </h3>
-              <button
-                onClick={() => setActiveAssignProject(null)}
-                className="text-stone-300 hover:text-white text-lg font-bold"
-              >
-                &times;
-              </button>
+              <p className="text-xs text-gray-600">
+                Tamper-evident chronological record of all administrative sanctions, MB entries, and AI alert reviews
+              </p>
+            </div>
+            <span className="text-xs bg-slate-200 text-slate-800 font-mono font-bold px-2 py-1 rounded">
+              {auditLogs.length} Records
+            </span>
+          </div>
+
+          <div className="overflow-x-auto max-h-[500px]">
+            <table className="w-full text-left text-xs text-gray-700 border-collapse">
+              <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px] border-b border-gray-200 sticky top-0">
+                <tr>
+                  <th className="py-2 px-3">Timestamp</th>
+                  <th className="py-2 px-3">Work ID</th>
+                  <th className="py-2 px-3">Official Action</th>
+                  <th className="py-2 px-3">Actor & Role</th>
+                  <th className="py-2 px-3">Field Modified</th>
+                  <th className="py-2 px-3">Previous State</th>
+                  <th className="py-2 px-3">New State</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 font-mono text-[11px]">
+                {auditLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-gray-50">
+                    <td className="py-2 px-3 text-gray-500 whitespace-nowrap">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="py-2 px-3 font-bold text-blue-900 whitespace-nowrap">{log.workId}</td>
+                    <td className="py-2 px-3 font-semibold text-gray-900">{log.action}</td>
+                    <td className="py-2 px-3 text-gray-700 whitespace-nowrap">
+                      {log.actorName} ({log.actorRole})
+                    </td>
+                    <td className="py-2 px-3 text-indigo-900">{log.fieldChanged}</td>
+                    <td className="py-2 px-3 text-gray-500 truncate max-w-[150px]">{log.previousValue}</td>
+                    <td className="py-2 px-3 text-emerald-800 font-bold truncate max-w-[200px]">
+                      {log.newValue}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADMINISTRATIVE SANCTION & AGENCY ASSIGNMENT */}
+      {selectedProjectForSanction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-lg max-w-lg w-full shadow-2xl border border-gray-300 overflow-hidden">
+            <div className="bg-blue-950 text-white p-4 flex items-center justify-between border-b-2 border-amber-500">
+              <h3 className="text-sm font-bold">Issue Administrative Sanction (Rule 2.11)</h3>
+              <button onClick={() => setSelectedProjectForSanction(null)} className="text-gray-300 hover:text-white">✕</button>
             </div>
 
-            <form onSubmit={handleAssignSubmit} className="p-5 space-y-3.5 text-xs">
-              <div className="bg-stone-50 p-3 rounded border border-stone-200">
-                <div className="font-bold text-stone-900">{activeAssignProject.title}</div>
-                <div className="text-stone-600 text-[11px] mt-0.5">
-                  Work Code: {activeAssignProject.workCode} • Sanctioned: ₹{activeAssignProject.sanctionedCostLakhs}L
+            <div className="p-5 space-y-3.5">
+              <div className="bg-blue-50 p-2.5 rounded border border-blue-200 text-xs">
+                <div className="font-bold text-blue-950">{selectedProjectForSanction.workId}</div>
+                <div className="text-gray-700 font-medium">{selectedProjectForSanction.title}</div>
+                <div className="text-[11px] text-gray-500 mt-1">
+                  Estimated by MP: {formatLakhs(selectedProjectForSanction.estimatedCost)}
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Select Implementing Agency *
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  Sanctioned Cost (INR ₹) *
+                </label>
+                <input
+                  type="number"
+                  value={sanctionCost}
+                  onChange={(e) => setSanctionCost(e.target.value)}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md font-bold text-gray-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  Designate Implementing Agency *
                 </label>
                 <select
-                  value={selectedAgency}
-                  onChange={(e) => setSelectedAgency(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded bg-white text-stone-900"
+                  value={agencyName}
+                  onChange={(e) => setAgencyName(e.target.value)}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md font-medium text-gray-900"
                 >
-                  <option value="IA-HYD-001">Telangana State Roads &amp; Development Corp (TSRDC)</option>
-                  <option value="IA-HYD-002">Hyderabad Metropolitan Water Supply &amp; Sewerage Board (HMWSSB)</option>
-                  <option value="IA-HYD-003">Greater Hyderabad Municipal Corporation Engineering Dept (GHMC)</option>
+                  <option value="PWD Rural Works Division">PWD Rural Works Division</option>
+                  <option value="Panchayati Raj Engineering Department">Panchayati Raj Engineering Department</option>
+                  <option value="Municipal Corporation Engineering Wing">Municipal Corporation Engineering Wing</option>
+                  <option value="Rural Water Supply & Sanitation (RWSS)">Rural Water Supply & Sanitation (RWSS)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Contractor / Vendor Firm Name (Optional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-gray-700 uppercase">
+                    Assigned Contractor / Vendor
+                  </label>
+                  <span className="text-[10px] text-gray-500">Select registered or type name</span>
+                </div>
                 <input
                   type="text"
+                  list="registered-contractors-list"
                   value={vendorName}
                   onChange={(e) => setVendorName(e.target.value)}
-                  placeholder="e.g. Deccan Infra Tech Ltd"
-                  className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900"
+                  placeholder="e.g. Sri Balaji Civil Infra Ltd."
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900 font-medium"
+                />
+                <datalist id="registered-contractors-list">
+                  {vendors.map((v) => (
+                    <option key={v.vendorName} value={v.vendorName}>
+                      {v.agencyName} (Avg Delay: {v.avgCompletionDelayDays}d, Risk: {v.riskLevel})
+                    </option>
+                  ))}
+                </datalist>
+
+                {/* Pre-Assignment Performance & Risk Track Record Card */}
+                {(() => {
+                  const matched = vendors.find(
+                    (v) => v.vendorName.toLowerCase().trim() === vendorName.toLowerCase().trim()
+                  );
+                  if (!matched) return null;
+
+                  const isHighRisk =
+                    matched.suitabilityStatus === 'High Risk / Review Required' ||
+                    matched.riskLevel === 'Critical' ||
+                    matched.avgCompletionDelayDays > 25;
+
+                  return (
+                    <div
+                      className={`mt-2 p-2.5 rounded-md border text-xs space-y-1.5 ${
+                        isHighRisk
+                          ? 'bg-rose-50 border-rose-300 text-rose-950'
+                          : matched.suitabilityStatus === 'Proceed with Caution'
+                          ? 'bg-amber-50 border-amber-300 text-amber-950'
+                          : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="flex items-center gap-1 text-[11px]">
+                          <Briefcase className="w-3.5 h-3.5" />
+                          <span>Contractor Performance Track Record (Rule 2.11)</span>
+                        </span>
+                        <span
+                          className={`text-[9px] uppercase font-black px-1.5 py-0.5 rounded border ${
+                            isHighRisk
+                              ? 'bg-rose-200 text-rose-900 border-rose-300'
+                              : matched.suitabilityStatus === 'Proceed with Caution'
+                              ? 'bg-amber-200 text-amber-900 border-amber-300'
+                              : 'bg-emerald-200 text-emerald-900 border-emerald-300'
+                          }`}
+                        >
+                          {matched.suitabilityStatus}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1.5 text-[11px] pt-1 border-t border-gray-200/50">
+                        <div>
+                          <span className="text-gray-500 block text-[10px]">Total Works</span>
+                          <span className="font-extrabold text-gray-900">
+                            {matched.totalProjects} ({matched.activeProjects} active)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 block text-[10px]">Avg Delay</span>
+                          <span
+                            className={`font-black ${
+                              matched.avgCompletionDelayDays > 25
+                                ? 'text-rose-700'
+                                : matched.avgCompletionDelayDays > 10
+                                ? 'text-amber-700'
+                                : 'text-emerald-700'
+                            }`}
+                          >
+                            {matched.avgCompletionDelayDays} Days
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 block text-[10px]">AI Risk History</span>
+                          <span className="font-extrabold text-gray-900">
+                            {matched.aiRiskHistory.length} Flagged
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-gray-700 leading-tight">
+                        <span className="font-bold">Advisory: </span>
+                        {matched.suitabilityReason}
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  District Magistrate Sanction Remarks
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Record verification of title deed, technical feasibility, and schedule..."
+                  value={decisionNotes}
+                  onChange={(e) => setDecisionNotes(e.target.value)}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200">
+              <div className="pt-3 border-t border-gray-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setActiveAssignProject(null)}
-                  className="px-3.5 py-2 text-stone-700 hover:bg-stone-100 border border-stone-300 rounded"
+                  disabled={submittingAction}
+                  onClick={() => handleSanctionSubmit(false)}
+                  className="px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 rounded border border-rose-300"
+                >
+                  Reject Proposal
+                </button>
+                <button
+                  type="button"
+                  disabled={submittingAction}
+                  onClick={() => handleSanctionSubmit(true)}
+                  className="px-4 py-2 text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white rounded shadow-xs"
+                >
+                  {submittingAction ? 'Recording...' : 'Grant Administrative Sanction'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: AI ALERT ADJUDICATION */}
+      {selectedAlertForReview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-lg max-w-lg w-full shadow-2xl border border-gray-300 overflow-hidden">
+            <div className="bg-blue-950 text-white p-4 flex items-center justify-between border-b-2 border-rose-500">
+              <h3 className="text-sm font-bold">Adjudicate AI Integrity Alert</h3>
+              <button onClick={() => setSelectedAlertForReview(null)} className="text-gray-300 hover:text-white">✕</button>
+            </div>
+
+            <div className="p-5 space-y-3.5">
+              <div className="bg-rose-50 p-3 rounded border border-rose-200 text-xs">
+                <div className="font-bold text-rose-950">{selectedAlertForReview.workId} - {selectedAlertForReview.type}</div>
+                <div className="text-gray-700 mt-1">{selectedAlertForReview.reason}</div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  Adjudication Finding *
+                </label>
+                <select
+                  value={reviewStatus}
+                  onChange={(e) => setReviewStatus(e.target.value as any)}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md font-bold text-gray-900"
+                >
+                  <option value="Valid">Valid Discrepancy (Confirm Anomaly & Issue Notice)</option>
+                  <option value="False Positive">False Positive (Explain Field Justification)</option>
+                  <option value="Needs More Info">Request Physical Inspection from SDM</option>
+                  <option value="Escalated">Escalate to Ministry (MoSPI)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  Official Review Finding & Remarks *
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Record physical inspection findings, surveyor reports, or administrative explanation..."
+                  value={reviewNotes}
+                  onChange={(e) => setReviewNotes(e.target.value)}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-gray-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAlertForReview(null)}
+                  className="px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded border border-gray-300"
                 >
                   Cancel
                 </button>
                 <button
-                  id="modal-submit-assign-btn"
-                  type="submit"
-                  disabled={processingAssign}
-                  className="px-4 py-2 bg-indigo-900 hover:bg-indigo-950 disabled:opacity-50 text-white font-bold rounded shadow-xs"
+                  type="button"
+                  disabled={submittingAction || !reviewNotes}
+                  onClick={handleAlertReviewSubmit}
+                  className="px-4 py-2 text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white rounded shadow-xs disabled:opacity-50"
                 >
-                  {processingAssign ? 'Assigning...' : 'Assign Implementing Agency'}
+                  {submittingAction ? 'Recording...' : 'Record Adjudication & Update Audit Trail'}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

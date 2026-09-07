@@ -1,315 +1,298 @@
 import {
   Project,
-  UserProfile,
-  AnomalyAlert,
+  Alert,
   CitizenFeedback,
   AuditLogEntry,
-  VendorAnalyticsSummary,
-} from '../types';
+  User,
+  VendorAnalytics,
+  PhotoVerificationResult
+} from '../types/index.ts';
 
 const TOKEN_KEY = 'mplads_auth_token';
 const USER_KEY = 'mplads_auth_user';
 
-export class ApiService {
-  private static getHeaders(): HeadersInit {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    return headers;
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function getStoredUser(): User | null {
+  const str = localStorage.getItem(USER_KEY);
+  if (!str) return null;
+  try {
+    return JSON.parse(str);
+  } catch {
+    return null;
+  }
+}
+
+function getHeaders(isJson = true) {
+  const headers: Record<string, string> = {};
+  if (isJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const token = getStoredToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+export async function loginUser(userId: string, password: string): Promise<{ token: string; user: User }> {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, password })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to authenticate');
   }
 
-  // Auth Methods
-  static getCurrentUser(): UserProfile | null {
-    try {
-      const stored = localStorage.getItem(USER_KEY);
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  }
+  localStorage.setItem(TOKEN_KEY, data.token);
+  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  return data;
+}
 
-  static async login(userId: string, password: string): Promise<UserProfile> {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, password }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Login failed' }));
-      throw new Error(err.error || 'Invalid credentials');
-    }
-
-    const data = await res.json();
-    localStorage.setItem(TOKEN_KEY, data.token);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    return data.user;
-  }
-
-  static async logout(): Promise<void> {
+export async function logoutUser(): Promise<void> {
+  const token = getStoredToken();
+  if (token) {
     try {
       await fetch('/api/auth/logout', {
         method: 'POST',
-        headers: this.getHeaders(),
+        headers: getHeaders()
       });
-    } catch (e) {
-      console.error(e);
+    } catch {
+      // Ignore network errors on logout
     }
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
   }
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
 
-  // Public portal stats
-  static async getPublicSummaryStats(): Promise<{
-    allocatedLimitLakhs: number;
-    worksRecommended: number;
-    worksSanctioned: number;
-    worksCompleted: number;
-    worksOngoing: number;
-    totalSanctionedCostLakhs: number;
-    totalExpenditureLakhs: number;
-    utilizationRatePercent: number;
-  }> {
-    const res = await fetch('/api/public/summary-stats');
-    if (!res.ok) throw new Error('Failed to fetch summary stats');
-    return res.json();
-  }
+export async function fetchPublicStats(): Promise<{
+  allocatedLimit: number;
+  worksRecommended: number;
+  worksSanctioned: number;
+  worksCompleted: number;
+  worksOngoing: number;
+  totalExpenditure: number;
+  sanctionedExpenditure: number;
+  updatedAt: string;
+}> {
+  const res = await fetch('/api/stats/public');
+  if (!res.ok) throw new Error('Failed to fetch public stats');
+  return res.json();
+}
 
-  static async getMPSummary(house?: string, state?: string, search?: string): Promise<any[]> {
-    const params = new URLSearchParams();
-    if (house) params.append('house', house);
-    if (state) params.append('state', state);
-    if (search) params.append('search', search);
+export async function fetchMpStats(): Promise<any[]> {
+  const res = await fetch('/api/stats/mps');
+  if (!res.ok) throw new Error('Failed to fetch MP statistics');
+  const data = await res.json();
+  return data.mps || [];
+}
 
-    const res = await fetch(`/api/public/mp-summary?${params.toString()}`);
-    if (!res.ok) throw new Error('Failed to fetch MP summary');
-    const json = await res.json();
-    return json.data || [];
-  }
-
-  // Projects
-  static async getProjects(filters: Record<string, string> = {}): Promise<Project[]> {
-    const params = new URLSearchParams();
-    for (const [key, val] of Object.entries(filters)) {
-      if (val && val !== 'ALL') params.append(key, val);
-    }
-
-    const res = await fetch(`/api/projects?${params.toString()}`, {
-      headers: this.getHeaders(),
+export async function fetchProjects(filters?: Record<string, string>): Promise<Project[]> {
+  const params = new URLSearchParams();
+  if (filters) {
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v && v !== 'All') params.append(k, v);
     });
-    if (!res.ok) throw new Error('Failed to fetch projects');
-    const json = await res.json();
-    return json.projects || [];
   }
 
-  static async getProjectById(id: string): Promise<Project> {
-    const res = await fetch(`/api/projects/${id}`, {
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to fetch project details');
-    const json = await res.json();
-    return json.project;
+  const url = `/api/projects?${params.toString()}`;
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch projects');
+  const data = await res.json();
+  return data.projects || [];
+}
+
+export async function fetchProjectById(id: string): Promise<Project> {
+  const res = await fetch(`/api/projects/${id}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch project details');
+  const data = await res.json();
+  return data.project;
+}
+
+export async function recommendNewWork(payload: {
+  title: string;
+  description: string;
+  category: string;
+  estimatedCost: number;
+  latitude: number;
+  longitude: number;
+  locationAddress: string;
+}): Promise<Project> {
+  const res = await fetch('/api/projects', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to submit recommendation');
+  return data.project;
+}
+
+export async function updateProjectStatus(
+  id: string,
+  payload: {
+    status: string;
+    sanctionedCost?: number;
+    agencyId?: string;
+    agencyName?: string;
+    vendorName?: string;
+    notes?: string;
   }
+): Promise<Project> {
+  const res = await fetch(`/api/projects/${id}/status`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
 
-  static async recommendWork(payload: Partial<Project>): Promise<Project> {
-    const res = await fetch('/api/projects/recommend', {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Failed to recommend work' }));
-      throw new Error(err.error);
-    }
-    const json = await res.json();
-    return json.project;
-  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update project status');
+  return data.project;
+}
 
-  static async sanctionProject(
-    id: string,
-    action: 'APPROVE' | 'REJECT',
-    sanctionedCostLakhs?: number,
-    remarks?: string
-  ): Promise<Project> {
-    const res = await fetch(`/api/projects/${id}/sanction`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ action, sanctionedCostLakhs, remarks }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Action failed' }));
-      throw new Error(err.error);
-    }
-    const json = await res.json();
-    return json.project;
-  }
+export async function updateProjectProgress(
+  id: string,
+  payload: { percentage: number; description: string }
+): Promise<Project> {
+  const res = await fetch(`/api/projects/${id}/progress`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
 
-  static async assignAgency(
-    id: string,
-    agencyId: string,
-    agencyName: string,
-    vendorName?: string
-  ): Promise<Project> {
-    const res = await fetch(`/api/projects/${id}/assign-agency`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ agencyId, agencyName, vendorName }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Agency assignment failed' }));
-      throw new Error(err.error);
-    }
-    const json = await res.json();
-    return json.project;
-  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update progress');
+  return data.project;
+}
 
-  static async updateProgress(
-    id: string,
-    progressPercentage: number,
-    stageNotes?: string,
-    expenditureAdditionLakhs?: number
-  ): Promise<Project> {
-    const res = await fetch(`/api/projects/${id}/progress`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ progressPercentage, stageNotes, expenditureAdditionLakhs }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Failed to update progress' }));
-      throw new Error(err.error);
-    }
-    const json = await res.json();
-    return json.project;
-  }
+export async function recordProjectExpenditure(
+  id: string,
+  payload: { amount: number; installmentNo?: number; sanctionOrderNo?: string }
+): Promise<Project> {
+  const res = await fetch(`/api/projects/${id}/expenditure`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
 
-  static async uploadPhoto(
-    projectId: string,
-    file: File,
-    caption: string,
-    stage: string,
-    simulationOverride?: string
-  ): Promise<any> {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const formData = new FormData();
-    formData.append('photo', file);
-    formData.append('caption', caption);
-    formData.append('stage', stage);
-    if (simulationOverride) {
-      formData.append('simulationOverride', simulationOverride);
-    }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to record expenditure');
+  return data.project;
+}
 
+export async function verifyPhotoUpload(
+  formDataOrBase64: FormData | { imageBase64: string; projectId: string; stage?: string; notes?: string }
+): Promise<PhotoVerificationResult> {
+  let res: globalThis.Response;
+  if (formDataOrBase64 instanceof FormData) {
+    const token = getStoredToken();
     const headers: Record<string, string> = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const res = await fetch(`/api/projects/${projectId}/upload-photo`, {
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    res = await fetch('/api/verify/photo', {
       method: 'POST',
       headers,
-      body: formData,
+      body: formDataOrBase64
     });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Photo upload failed' }));
-      throw new Error(err.error);
-    }
-
-    return res.json();
-  }
-
-  // Alerts & Review
-  static async getAlerts(filters: Record<string, string> = {}): Promise<AnomalyAlert[]> {
-    try {
-      const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(filters)) {
-        if (v && v !== 'ALL') params.append(k, v);
-      }
-
-      const res = await fetch(`/api/alerts?${params.toString()}`, {
-        headers: this.getHeaders(),
-      });
-      if (!res.ok) {
-        console.warn(`Alerts endpoint returned status ${res.status}`);
-        return [];
-      }
-      const json = await res.json();
-      return json.alerts || [];
-    } catch (err) {
-      console.warn('Failed to fetch alerts, returning fallback:', err);
-      return [];
-    }
-  }
-
-  static async reviewAlert(
-    alertId: string,
-    newStatus: string,
-    remarks: string,
-    assignedOfficer?: string
-  ): Promise<AnomalyAlert> {
-    const res = await fetch(`/api/alerts/${alertId}/review`, {
+  } else {
+    res = await fetch('/api/verify/photo', {
       method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ newStatus, remarks, assignedOfficer }),
+      headers: getHeaders(),
+      body: JSON.stringify(formDataOrBase64)
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Alert review action failed' }));
-      throw new Error(err.error);
-    }
-    const json = await res.json();
-    return json.alert;
   }
 
-  // Citizen Feedback
-  static async getFeedback(projectId?: string): Promise<CitizenFeedback[]> {
-    const url = projectId ? `/api/feedback?projectId=${projectId}` : '/api/feedback';
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch feedback');
-    const json = await res.json();
-    return json.feedback || [];
-  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Photo verification failed');
+  return data.verification;
+}
 
-  static async submitFeedback(payload: Partial<CitizenFeedback>): Promise<CitizenFeedback> {
-    const res = await fetch('/api/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Submission failed' }));
-      throw new Error(err.error);
-    }
-    const json = await res.json();
-    return json.feedback;
-  }
+export async function fetchTestPhotoSamples(): Promise<{
+  targetProject: { id: string; workId: string; title: string; latitude: number; longitude: number };
+  samples: Array<{
+    id: string;
+    name: string;
+    description: string;
+    result: PhotoVerificationResult;
+  }>;
+}> {
+  const res = await fetch('/api/verify/test-samples');
+  if (!res.ok) throw new Error('Failed to fetch sample verification tests');
+  return res.json();
+}
 
-  // Vendors
-  static async getVendorAnalytics(): Promise<VendorAnalyticsSummary[]> {
-    const res = await fetch('/api/vendors/analytics', {
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to fetch vendor analytics');
-    const json = await res.json();
-    return json.vendors || [];
-  }
+export async function fetchAlerts(): Promise<Alert[]> {
+  const res = await fetch('/api/alerts', { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch integrity alerts');
+  const data = await res.json();
+  return data.alerts || [];
+}
 
-  // Audit logs
-  static async getAuditLogs(): Promise<AuditLogEntry[]> {
-    const res = await fetch('/api/audit-logs', {
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to fetch audit logs');
-    const json = await res.json();
-    return json.logs || [];
-  }
+export async function reviewAlert(
+  id: string,
+  payload: { status: string; reviewNotes: string }
+): Promise<Alert> {
+  const res = await fetch(`/api/alerts/${id}/review`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
 
-  // Automated Test Suite runner
-  static async runVerificationTests(): Promise<any> {
-    const res = await fetch('/api/test-verification');
-    if (!res.ok) throw new Error('Failed to run verification tests');
-    return res.json();
-  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update alert');
+  return data.alert;
+}
+
+export async function fetchVendorAnalytics(): Promise<VendorAnalytics[]> {
+  const res = await fetch('/api/analytics/vendors', { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch vendor analytics');
+  const data = await res.json();
+  return data.vendors || [];
+}
+
+export async function fetchVendorByName(name: string): Promise<VendorAnalytics> {
+  const res = await fetch(`/api/analytics/vendors/${encodeURIComponent(name)}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch vendor details');
+  const data = await res.json();
+  return data.vendor;
+}
+
+export async function fetchFeedback(projectId?: string): Promise<CitizenFeedback[]> {
+  const url = projectId ? `/api/feedback?projectId=${projectId}` : '/api/feedback';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch citizen feedback');
+  const data = await res.json();
+  return data.feedback || [];
+}
+
+export async function submitCitizenFeedback(payload: {
+  projectId: string;
+  issueType: string;
+  citizenName: string;
+  contactEmail?: string;
+  comments: string;
+  photoUrl?: string;
+}): Promise<CitizenFeedback> {
+  const res = await fetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to submit grievance');
+  return data.feedback;
+}
+
+export async function fetchAuditLogs(projectId?: string): Promise<AuditLogEntry[]> {
+  const url = projectId ? `/api/audit-logs?projectId=${projectId}` : '/api/audit-logs';
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch audit logs');
+  const data = await res.json();
+  return data.logs || [];
 }

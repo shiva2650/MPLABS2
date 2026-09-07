@@ -1,410 +1,520 @@
-import React, { useState, useEffect } from 'react';
-import { Project, UserProfile, AnomalyAlert, CitizenFeedback } from './types';
-import { ApiService } from './services/api';
-import { Header } from './components/Header';
-import { PublicDashboard } from './components/PublicDashboard';
-import { ProjectsListView } from './components/ProjectsListView';
-import { GISProjectMap } from './components/GISProjectMap';
-import { MPDashboard } from './components/MPDashboard';
-import { AdminDashboard } from './components/AdminDashboard';
-import { AgencyDashboard } from './components/AgencyDashboard';
-import { AnomalyAlertsCenter } from './components/AnomalyAlertsCenter';
-import { VendorAnalyticsView } from './components/VendorAnalyticsView';
-import { ReportsAndAuditView } from './components/ReportsAndAuditView';
-import { VerificationWorkbench } from './components/VerificationWorkbench';
-import { CitizenFeedbackSection } from './components/CitizenFeedbackSection';
-import { ProjectDetailsModal } from './components/ProjectDetailsModal';
-import { LoginModal } from './components/LoginModal';
-import { Shield, ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { User, Project, Alert, CitizenFeedback, VendorAnalytics } from './types/index.ts';
+import {
+  getStoredUser,
+  getStoredToken,
+  logoutUser,
+  fetchPublicStats,
+  fetchMpStats,
+  fetchProjects,
+  fetchAlerts,
+  fetchFeedback,
+  fetchVendorAnalytics
+} from './services/api.ts';
+import { Navbar } from './components/Navbar.tsx';
+import { KpiCards } from './components/KpiCards.tsx';
+import { SearchFilterPanel } from './components/SearchFilterPanel.tsx';
+import { MpDataTable } from './components/MpDataTable.tsx';
+import { GisMap } from './components/GisMap.tsx';
+import { CitizenFeedbackModal } from './components/CitizenFeedbackModal.tsx';
+import { LoginModal } from './components/LoginModal.tsx';
+import { MpDashboard } from './components/MpDashboard.tsx';
+import { AdminDashboard } from './components/AdminDashboard.tsx';
+import { AgencyDashboard } from './components/AgencyDashboard.tsx';
+import { AiVerificationLab } from './components/AiVerificationLab.tsx';
+import { ProjectDetailModal } from './components/ProjectDetailModal.tsx';
+import { VendorAnalyticsView } from './components/VendorAnalyticsView.tsx';
+import {
+  Building2,
+  MapPin,
+  FileText,
+  IndianRupee,
+  CheckCircle2,
+  Clock,
+  ShieldAlert,
+  ArrowRight,
+  Eye,
+  RefreshCw
+} from 'lucide-react';
 
 export default function App() {
-  // Navigation & Authentication State
-  const [currentView, setCurrentView] = useState<string>('public');
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+  // Current Authenticated User Session
+  const [user, setUser] = useState<User | null>(getStoredUser());
 
-  // Global Data State
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [alerts, setAlerts] = useState<AnomalyAlert[]>([]);
-  const [feedback, setFeedback] = useState<CitizenFeedback[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  // Active View Tab: 'public' | 'dashboard' | 'ai-lab' | 'feedback' | 'vendors'
+  const [activeView, setActiveView] = useState<'public' | 'dashboard' | 'ai-lab' | 'feedback' | 'vendors'>('public');
 
-  // Load Initial Data
-  useEffect(() => {
-    // Check local session
-    const savedUser = ApiService.getCurrentUser();
-    if (savedUser) {
-      setCurrentUser(savedUser);
-    }
-    loadAllData();
-  }, []);
+  // House filter tab on public portal: 'All' | 'Lok Sabha' | 'Rajya Sabha'
+  const [selectedHouseTab, setSelectedHouseTab] = useState<'All' | 'Lok Sabha' | 'Rajya Sabha'>('All');
 
-  const loadAllData = async () => {
+  // Public Search & Filter State
+  const [filters, setFilters] = useState({
+    search: '',
+    house: 'All',
+    state: 'All',
+    category: 'All',
+    status: 'All',
+    riskLevel: 'All'
+  });
+
+  // Modal Controls
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [inspectedProject, setInspectedProject] = useState<Project | null>(null);
+
+  // Application Data Stores
+  const [publicStats, setPublicStats] = useState<any | null>(null);
+  const [mpLedger, setMpLedger] = useState<any[]>([]);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const [allAlerts, setAllAlerts] = useState<Alert[]>([]);
+  const [allFeedback, setAllFeedback] = useState<CitizenFeedback[]>([]);
+  const [allVendors, setAllVendors] = useState<VendorAnalytics[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Data Loader
+  const loadPortalData = async () => {
     setLoading(true);
     try {
-      const [pData, aData, fData] = await Promise.all([
-        ApiService.getProjects().catch((err) => {
-          console.error('Projects fetch error:', err);
-          return [];
-        }),
-        ApiService.getAlerts().catch((err) => {
-          console.error('Alerts fetch error:', err);
-          return [];
-        }),
-        ApiService.getFeedback().catch((err) => {
-          console.error('Feedback fetch error:', err);
-          return [];
-        }),
+      const [stats, mps, projects, alerts, feedback, vendors] = await Promise.all([
+        fetchPublicStats(),
+        fetchMpStats(),
+        fetchProjects(),
+        fetchAlerts().catch(() => []),
+        fetchFeedback().catch(() => []),
+        fetchVendorAnalytics().catch(() => [])
       ]);
-      setProjects(pData || []);
-      setAlerts(aData || []);
-      setFeedback(fData || []);
+      setPublicStats(stats);
+      setMpLedger(mps);
+      setAllProjects(projects);
+      setAllAlerts(alerts);
+      setAllFeedback(feedback);
+      setAllVendors(vendors);
     } catch (err) {
-      console.error('Failed to load portal data:', err);
+      console.error('Error fetching portal data:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLoginSuccess = (user: UserProfile) => {
-    setCurrentUser(user);
-    // Automatically redirect to appropriate dashboard based on role
-    if (user.role === 'MP') {
-      setCurrentView('mp-portal');
-    } else if (user.role === 'ADMIN') {
-      setCurrentView('admin-portal');
-    } else if (user.role === 'AGENCY') {
-      setCurrentView('agency-portal');
-    } else {
-      setCurrentView('public');
-    }
+  useEffect(() => {
+    loadPortalData();
+  }, [user]);
+
+  // Auth Handlers
+  const handleLoginSuccess = (authenticatedUser: User) => {
+    setUser(authenticatedUser);
+    setActiveView('dashboard');
   };
 
-  const handleLogout = () => {
-    ApiService.logout();
-    setCurrentUser(null);
-    setCurrentView('public');
+  const handleLogout = async () => {
+    await logoutUser();
+    setUser(null);
+    setActiveView('public');
   };
+
+  // Sync House Tab with Search Filters
+  const handleHouseTabChange = (house: 'All' | 'Lok Sabha' | 'Rajya Sabha') => {
+    setSelectedHouseTab(house);
+    setFilters((prev) => ({ ...prev, house }));
+  };
+
+  // Filtered Projects for Public Display
+  const filteredProjects = useMemo(() => {
+    return allProjects.filter((p) => {
+      if (filters.house !== 'All' && p.house !== filters.house) return false;
+      if (filters.state !== 'All' && p.state.toLowerCase() !== filters.state.toLowerCase()) return false;
+      if (filters.category !== 'All' && p.category !== filters.category) return false;
+      if (filters.status !== 'All' && p.status !== filters.status) return false;
+      if (filters.riskLevel !== 'All' && p.riskLevel !== filters.riskLevel) return false;
+
+      if (filters.search) {
+        const q = filters.search.toLowerCase().trim();
+        const matches =
+          p.workId.toLowerCase().includes(q) ||
+          p.title.toLowerCase().includes(q) ||
+          p.mpName.toLowerCase().includes(q) ||
+          p.constituency.toLowerCase().includes(q) ||
+          p.district.toLowerCase().includes(q) ||
+          p.state.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q) ||
+          (p.agencyName && p.agencyName.toLowerCase().includes(q));
+        if (!matches) return false;
+      }
+      return true;
+    });
+  }, [allProjects, filters]);
+
+  // Filter MP ledger by house
+  const filteredMpLedger = useMemo(() => {
+    if (selectedHouseTab === 'All') return mpLedger;
+    return mpLedger.filter((m) => m.house === selectedHouseTab);
+  }, [mpLedger, selectedHouseTab]);
+
+  const formatLakhs = (amt: number) => `₹${(amt / 100000).toFixed(1)} L`;
 
   return (
-    <div className="min-h-screen bg-[#F2F5F9] text-[#333] flex flex-col font-sans antialiased selection:bg-[#0A2540] selection:text-white">
-      {/* Official Government Portal Header - Geometric Balance Theme */}
-      <Header
-        currentUser={currentUser}
-        currentView={currentView}
-        onNavigate={(view) => {
-          if (view === 'dashboard') {
-            if (!currentUser) {
-              setIsLoginModalOpen(true);
-            } else if (currentUser.role === 'MP') {
-              setCurrentView('mp-portal');
-            } else if (currentUser.role === 'ADMIN') {
-              setCurrentView('admin-portal');
-            } else if (currentUser.role === 'AGENCY') {
-              setCurrentView('agency-portal');
-            } else {
-              setCurrentView('public');
-            }
-          } else if (view === 'public-portal') {
-            setCurrentView('public');
-          } else if (view === 'projects-list') {
-            setCurrentView('projects');
-          } else if (view === 'citizen-feedback') {
-            setCurrentView('feedback');
-          } else if (view === 'verification-workbench') {
-            setCurrentView('workbench');
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-gray-900 antialiased selection:bg-blue-900 selection:text-white">
+      {/* Top Government Navigation Header */}
+      <Navbar
+        user={user}
+        activeView={activeView}
+        setActiveView={(v) => {
+          if (v === 'dashboard' && !user) {
+            setIsLoginModalOpen(true);
           } else {
-            setCurrentView(view);
+            setActiveView(v);
           }
         }}
         onOpenLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
-        alertCount={alerts.length}
+        alertsCount={allAlerts.length}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {loading && projects.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-500 space-y-3">
-            <RefreshCw className="w-8 h-8 animate-spin text-[#0A2540]" />
-            <div className="text-sm font-semibold uppercase tracking-wider text-[#0A2540]">
-              Connecting to MPLADS National Monitoring Database...
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* VIEW 1: PUBLIC PORTAL (eSAKSHI Style) */}
+        {activeView === 'public' && (
+          <div className="space-y-6">
+            {/* Top Title Section */}
+            <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-2xs">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 text-xs font-extrabold text-blue-900 bg-blue-50 px-2.5 py-1 rounded border border-blue-200 uppercase mb-2">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>MoSPI Central Sector Scheme Portal</span>
+                  </div>
+                  <h2 className="text-xl md:text-2xl font-extrabold text-gray-900 tracking-tight">
+                    Members of Parliament Local Area Development Scheme (MPLADS)
+                  </h2>
+                  <p className="text-xs text-gray-600 mt-1 max-w-3xl">
+                    Constituency fund utilization, physical execution tracking, and automated AI integrity monitoring
+                    across all 543 Lok Sabha and 245 Rajya Sabha parliamentary jurisdictions.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 self-start md:self-auto">
+                  <button
+                    onClick={loadPortalData}
+                    className="p-2 text-gray-600 hover:text-blue-900 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
+                    title="Refresh Data"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button
+                    onClick={() => setActiveView('feedback')}
+                    className="px-3.5 py-2 text-xs font-bold bg-emerald-800 hover:bg-emerald-700 text-white rounded-md shadow-xs transition-colors"
+                  >
+                    Lodge Public Vigilance Report
+                  </button>
+                </div>
+              </div>
+
+              {/* Parliamentary House Selector Tabs */}
+              <div className="flex items-center gap-2 mt-5 pt-4 border-t border-gray-100">
+                <button
+                  onClick={() => handleHouseTabChange('All')}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                    selectedHouseTab === 'All'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                  }`}
+                >
+                  All Houses (788 Members)
+                </button>
+                <button
+                  onClick={() => handleHouseTabChange('Lok Sabha')}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                    selectedHouseTab === 'Lok Sabha'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                  }`}
+                >
+                  Lok Sabha (543 Constituencies)
+                </button>
+                <button
+                  onClick={() => handleHouseTabChange('Rajya Sabha')}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                    selectedHouseTab === 'Rajya Sabha'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                  }`}
+                >
+                  Rajya Sabha (245 States/UTs)
+                </button>
+              </div>
+            </div>
+
+            {/* Key Performance Indicators (eSAKSHI) */}
+            <KpiCards stats={publicStats} loading={loading} />
+
+            {/* Search & Filter Engine */}
+            <SearchFilterPanel
+              filters={filters}
+              onFilterChange={setFilters}
+              onReset={() =>
+                setFilters({
+                  search: '',
+                  house: 'All',
+                  state: 'All',
+                  category: 'All',
+                  status: 'All',
+                  riskLevel: 'All'
+                })
+              }
+              totalResults={filteredProjects.length}
+            />
+
+            {/* Interactive GIS OpenStreetMap */}
+            <GisMap
+              projects={filteredProjects}
+              onSelectProject={(p) => setInspectedProject(p)}
+              selectedProjectId={inspectedProject?.id}
+            />
+
+            {/* Parliamentary MP Progress Ledger Table */}
+            <MpDataTable
+              mps={filteredMpLedger}
+              onSelectMp={(name) => setFilters((prev) => ({ ...prev, search: name }))}
+            />
+
+            {/* Public Works Directory Grid */}
+            <div className="bg-white rounded-lg border border-gray-200 shadow-2xs p-4">
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
+                <div>
+                  <h3 className="text-sm font-extrabold text-gray-900">
+                    Works Directory & Physical Inspection Registry
+                  </h3>
+                  <p className="text-xs text-gray-600">
+                    Showing {filteredProjects.length} sanctioned community works
+                  </p>
+                </div>
+              </div>
+
+              {filteredProjects.length === 0 ? (
+                <div className="p-12 text-center text-gray-500 text-xs">
+                  No development works match the selected search criteria.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {filteredProjects.map((p) => (
+                    <div
+                      key={p.id}
+                      className="bg-gray-50/70 border border-gray-200 rounded-lg p-3.5 hover:border-blue-300 hover:bg-blue-50/20 transition-all flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between text-[10px] mb-1.5">
+                          <span className="font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            {p.workId}
+                          </span>
+                          <span
+                            className={`font-bold px-1.5 py-0.5 rounded uppercase ${
+                              p.status === 'Completed'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : p.status === 'Ongoing'
+                                ? 'bg-blue-100 text-blue-800'
+                                : p.status === 'Delayed'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-gray-200 text-gray-800'
+                            }`}
+                          >
+                            {p.status}
+                          </span>
+                        </div>
+
+                        <h4 className="text-xs font-bold text-gray-900 line-clamp-2 mb-1">
+                          {p.title}
+                        </h4>
+
+                        <div className="text-[11px] text-gray-600 mb-2 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
+                          <span className="truncate">{p.district}, {p.state} ({p.constituency})</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1 text-[11px] py-2 border-t border-gray-200/60 mb-2">
+                          <div>
+                            <span className="text-gray-500 text-[10px] block uppercase">Cost</span>
+                            <span className="font-extrabold text-blue-950">
+                              {formatLakhs(p.sanctionedCost || p.estimatedCost)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 text-[10px] block uppercase">Representative</span>
+                            <span className="font-semibold text-gray-800 truncate block">
+                              {p.mpName}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Progress */}
+                        <div className="mb-2">
+                          <div className="flex justify-between text-[10px] font-bold text-gray-600 mb-0.5">
+                            <span>Progress</span>
+                            <span>{p.completionPercentage}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="h-1.5 bg-blue-900 rounded-full"
+                              style={{ width: `${p.completionPercentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setInspectedProject(p)}
+                        className="w-full py-1.5 px-3 bg-white hover:bg-blue-900 hover:text-white text-blue-900 text-xs font-bold rounded border border-blue-900 transition-colors flex items-center justify-center gap-1 mt-2"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Inspect Work File</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <>
-            {/* VIEW 1: PUBLIC DASHBOARD */}
-            {currentView === 'public' && (
-              <PublicDashboard
-                projects={projects}
-                onSelectProject={(p) => setSelectedProject(p)}
-                onNavigate={(v) => setCurrentView(v)}
-                onRefresh={loadAllData}
+        )}
+
+        {/* VIEW 2: ROLE-BASED DASHBOARD (MP / ADMIN / AGENCY) */}
+        {activeView === 'dashboard' && user && (
+          <div>
+            {user.role === 'mp' && (
+              <MpDashboard
+                user={user}
+                projects={allProjects.filter((p) => p.mpId === user.userId || p.constituency === user.constituency)}
+                alerts={allAlerts.filter((a) => {
+                  const proj = allProjects.find((p) => p.id === a.projectId);
+                  return proj && (proj.mpId === user.userId || proj.constituency === user.constituency);
+                })}
+                onSelectProject={(p) => setInspectedProject(p)}
+                onRefreshData={loadPortalData}
               />
             )}
 
-            {/* VIEW 2: MASTER PROJECTS REPOSITORY */}
-            {currentView === 'projects' && (
-              <ProjectsListView
-                projects={projects}
-                currentUser={currentUser}
-                onSelectProject={(p) => setSelectedProject(p)}
+            {user.role === 'admin' && (
+              <AdminDashboard
+                user={user}
+                projects={allProjects}
+                alerts={allAlerts}
+                onSelectProject={(p) => setInspectedProject(p)}
+                onRefreshData={loadPortalData}
               />
             )}
 
-            {/* VIEW 3: GIS GEO MAP */}
-            {currentView === 'gis-map' && (
-              <GISProjectMap
-                projects={projects}
-                onSelectProject={(p) => setSelectedProject(p)}
+            {user.role === 'agency' && (
+              <AgencyDashboard
+                user={user}
+                projects={allProjects.filter(
+                  (p) => p.agencyId === user.agencyId || p.agencyName === user.agencyName || user.userId === 'AGENCY001'
+                )}
+                onSelectProject={(p) => setInspectedProject(p)}
+                onRefreshData={loadPortalData}
               />
             )}
+          </div>
+        )}
 
-            {/* VIEW 4: MEMBER OF PARLIAMENT WORKSPACE */}
-            {currentView === 'mp-portal' && (
-              currentUser && currentUser.role === 'MP' ? (
-                <MPDashboard
-                  currentUser={currentUser}
-                  projects={projects}
-                  onSelectProject={(p) => setSelectedProject(p)}
-                  onRefresh={loadAllData}
-                />
-              ) : (
-                <div className="bg-white border-t-4 border-[#0A2540] border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
-                  <div className="p-3 bg-orange-50 text-[#F27D26] rounded-full w-12 h-12 flex items-center justify-center mx-auto">
-                    <Shield className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
-                    MP Authentication Required
-                  </h3>
-                  <p className="text-xs text-gray-600 max-w-md mx-auto">
-                    Access to recommend new developmental works under MPLADS Guidelines (2010) is restricted to credentialed Members of Parliament.
-                  </p>
-                  <button
-                    onClick={() => setIsLoginModalOpen(true)}
-                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#081d33] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
-                  >
-                    Login as Member of Parliament
-                  </button>
-                </div>
-              )
-            )}
+        {/* VIEW 3: AI INTEGRITY & STATISTICAL TESTBENCH */}
+        {activeView === 'ai-lab' && (
+          <AiVerificationLab
+            projects={allProjects}
+            onSelectProject={(p) => setInspectedProject(p)}
+          />
+        )}
 
-            {/* VIEW 5: DISTRICT NODAL AUTHORITY WORKSPACE */}
-            {currentView === 'admin-portal' && (
-              currentUser && currentUser.role === 'ADMIN' ? (
-                <AdminDashboard
-                  currentUser={currentUser}
-                  projects={projects}
-                  alerts={alerts}
-                  onSelectProject={(p) => setSelectedProject(p)}
-                  onNavigate={(v) => setCurrentView(v)}
-                  onRefresh={loadAllData}
-                />
-              ) : (
-                <div className="bg-white border-t-4 border-[#0A2540] border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
-                  <div className="p-3 bg-blue-50 text-[#0A2540] rounded-full w-12 h-12 flex items-center justify-center mx-auto">
-                    <Shield className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
-                    District Authority Access Required
-                  </h3>
-                  <p className="text-xs text-gray-600 max-w-md mx-auto">
-                    Administrative Sanction, technical scrutiny, and Implementing Agency assignment require District Nodal Authority credentials.
-                  </p>
-                  <button
-                    onClick={() => setIsLoginModalOpen(true)}
-                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#081d33] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
-                  >
-                    Login as District Authority (IAS Collector)
-                  </button>
-                </div>
-              )
-            )}
+        {/* VIEW 4: CITIZEN FEEDBACK & GRIEVANCE REDRESSAL */}
+        {activeView === 'feedback' && (
+          <CitizenFeedbackModal
+            projects={allProjects}
+            feedbackList={allFeedback}
+            onFeedbackSubmitted={loadPortalData}
+          />
+        )}
 
-            {/* VIEW 6: IMPLEMENTING AGENCY WORKSPACE */}
-            {currentView === 'agency-portal' && (
-              currentUser && currentUser.role === 'AGENCY' ? (
-                <AgencyDashboard
-                  currentUser={currentUser}
-                  projects={projects}
-                  onSelectProject={(p) => setSelectedProject(p)}
-                  onRefresh={loadAllData}
-                />
-              ) : (
-                <div className="bg-white border-t-4 border-[#F27D26] border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
-                  <div className="p-3 bg-orange-50 text-[#F27D26] rounded-full w-12 h-12 flex items-center justify-center mx-auto">
-                    <Shield className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
-                    Executing Agency Access Required
-                  </h3>
-                  <p className="text-xs text-gray-600 max-w-md mx-auto">
-                    Physical execution progress reporting and geotagged photographic upload require authenticated Executing Agency credentials.
-                  </p>
-                  <button
-                    onClick={() => setIsLoginModalOpen(true)}
-                    className="px-5 py-2.5 bg-[#F27D26] hover:bg-[#d96817] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
-                  >
-                    Login as Executing Agency Engineer
-                  </button>
-                </div>
-              )
-            )}
-
-            {/* VIEW 7: AI ANOMALY ALERTS REVIEW CENTER */}
-            {currentView === 'alerts-center' && (
-              currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MP') ? (
-                <AnomalyAlertsCenter
-                  alerts={alerts}
-                  currentUser={currentUser}
-                  onRefresh={loadAllData}
-                  onSelectProjectById={(id) => {
-                    const p = projects.find((item) => item.id === id);
-                    if (p) setSelectedProject(p);
-                  }}
-                />
-              ) : (
-                <div className="bg-white border-t-4 border-red-600 border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
-                  <div className="p-3 bg-red-50 text-red-700 rounded-full w-12 h-12 flex items-center justify-center mx-auto">
-                    <AlertTriangle className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
-                    Authorized Personnel Only
-                  </h3>
-                  <p className="text-xs text-gray-600 max-w-md mx-auto">
-                    To prevent misinterpretation, granular AI anomaly reasoning is restricted to District Administrators and Members of Parliament under Scheme Policy.
-                  </p>
-                  <button
-                    onClick={() => setIsLoginModalOpen(true)}
-                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#081d33] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
-                  >
-                    Login with Official Credentials
-                  </button>
-                </div>
-              )
-            )}
-
-            {/* VIEW 8: VENDOR & AGENCY PERFORMANCE ANALYTICS */}
-            {currentView === 'vendor-analytics' && (
-              <VendorAnalyticsView />
-            )}
-
-            {/* VIEW 9: REPORTS & IMMUTABLE AUDIT TRAIL */}
-            {currentView === 'reports-audit' && (
-              <ReportsAndAuditView
-                currentUser={currentUser || {
-                  id: 'guest',
-                  name: 'Public Viewer',
-                  role: 'PUBLIC',
-                }}
-              />
-            )}
-
-            {/* VIEW 10: CITIZEN GRIEVANCES & FEEDBACK */}
-            {currentView === 'feedback' && (
-              <CitizenFeedbackSection
-                feedbackList={feedback}
-                projects={projects}
-                onRefresh={loadAllData}
-              />
-            )}
-
-            {/* VIEW 11: AI VERIFICATION TEST RUNNER / WORKBENCH */}
-            {currentView === 'workbench' && (
-              <VerificationWorkbench />
-            )}
-          </>
+        {/* VIEW 5: VENDOR & IMPLEMENTING AGENCY ANALYTICS */}
+        {activeView === 'vendors' && (
+          <VendorAnalyticsView
+            vendors={allVendors}
+            projects={allProjects}
+            currentUser={user}
+            onSelectProject={(p) => setInspectedProject(p)}
+            onSanctionWorkWithVendor={(vendorName, agencyName) => {
+              if (user && user.role === 'admin') {
+                setActiveView('dashboard');
+              } else {
+                setIsLoginModalOpen(true);
+              }
+            }}
+            onRefreshData={loadPortalData}
+          />
         )}
       </main>
 
-      {/* Official Government Footer - Geometric Balance */}
-      <footer className="mt-12 bg-[#0A2540] text-slate-300 border-t-4 border-[#F27D26] text-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="space-y-2">
-              <div className="text-white font-bold text-sm flex items-center gap-2 uppercase tracking-wide">
-                <span>MPLADS AI Integrity System</span>
-              </div>
-              <p className="text-slate-400 text-[11px] leading-relaxed">
-                National transparency portal for monitoring Members of Parliament Local Area Development Scheme works, fund utilization, and physical asset verification.
-              </p>
-              <div className="text-[10px] text-[#F27D26] font-semibold uppercase tracking-wider">
-                Aligned with official MPLADS Guidelines (2010).
-              </div>
-            </div>
-
-            <div>
-              <div className="text-white font-bold text-xs uppercase tracking-wider mb-2">
-                Statutory Guidelines
-              </div>
-              <ul className="space-y-1 text-slate-400 text-[11px]">
-                <li>• Annual Entitlement: ₹5.00 Crore / Year</li>
-                <li>• SC Population Quota: Minimum 15%</li>
-                <li>• ST Population Quota: Minimum 7.5%</li>
-                <li>• Permissible Work Limits: Durable Assets</li>
-                <li>• Prohibited Works: Movable items, maintenance</li>
-              </ul>
-            </div>
-
-            <div>
-              <div className="text-white font-bold text-xs uppercase tracking-wider mb-2">
-                AI Integrity Framework
-              </div>
-              <ul className="space-y-1 text-slate-400 text-[11px]">
-                <li>• Decision Support Policy for Human Review</li>
-                <li>• EXIF &amp; GPS Haversine Geo-Verification</li>
-                <li>• Perceptual Image Hash Reuse Screening</li>
-                <li>• Statistical Cost Deviation (Z-Score &gt; 2.5σ)</li>
-                <li>• Append-Only Immutable Audit Trail</li>
-              </ul>
-            </div>
-
-            <div>
-              <div className="text-white font-bold text-xs uppercase tracking-wider mb-2">
-                Transparency &amp; Contact
-              </div>
-              <div className="space-y-1 text-slate-400 text-[11px]">
-                <div>Ministry of Statistics &amp; Programme Implementation</div>
-                <div>Government of India, New Delhi - 110001</div>
-                <div className="pt-2 text-slate-400">
-                  Data updated daily from District Nodal Authorities and Executing Agencies.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-6 border-t border-slate-700/60 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-400">
-            <div>
-              © 2026 Government of India • Ministry of Statistics and Programme Implementation (MoSPI)
-            </div>
-            <div className="flex items-center gap-4 text-[#F27D26]">
-              <span>Security Audited</span>
-              <span className="text-slate-600">•</span>
-              <span>Append-Only Logs</span>
-              <span className="text-slate-600">•</span>
-              <span>Citizen Grievance Redressal</span>
-            </div>
-          </div>
-        </div>
-      </footer>
-
-      {/* Project Details Modal */}
-      {selectedProject && (
-        <ProjectDetailsModal
-          project={selectedProject}
-          currentUser={currentUser}
-          onClose={() => setSelectedProject(null)}
-        />
-      )}
-
-      {/* Authentication Modal */}
+      {/* Official Sign-In Modal */}
       <LoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
       />
+
+      {/* Project Dossier Modal */}
+      <ProjectDetailModal
+        project={inspectedProject}
+        feedbackList={allFeedback}
+        onClose={() => setInspectedProject(null)}
+        onOpenGrievanceForm={(p) => {
+          setInspectedProject(null);
+          setActiveView('feedback');
+        }}
+      />
+
+      {/* Official Government Portal Footer */}
+      <footer className="bg-slate-900 text-slate-400 text-xs mt-12 border-t border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+            <div>
+              <div className="text-white font-bold text-sm mb-2">MPLADS AI Integrity System</div>
+              <p className="text-[11px] leading-relaxed">
+                Central Sector Scheme for Members of Parliament Local Area Development Scheme. Official monitoring
+                portal under Ministry of Statistics and Programme Implementation (MoSPI).
+              </p>
+            </div>
+            <div>
+              <div className="text-white font-bold text-xs uppercase mb-2">Regulatory Reference</div>
+              <ul className="space-y-1 text-[11px]">
+                <li>MPLADS Guidelines (2010 Revision)</li>
+                <li>eSAKSHI Digital Public Infrastructure</li>
+                <li>District Magistrate Circulars</li>
+                <li>Technical Feasibility Norms</li>
+              </ul>
+            </div>
+            <div>
+              <div className="text-white font-bold text-xs uppercase mb-2">Integrity Protocols</div>
+              <ul className="space-y-1 text-[11px]">
+                <li>EXIF Metadata Verification</li>
+                <li>Haversine Geo-fence Proximity</li>
+                <li>Cost Outlier Z-Score Regression</li>
+                <li>Perceptual Image Hash Ledger</li>
+              </ul>
+            </div>
+            <div>
+              <div className="text-white font-bold text-xs uppercase mb-2">Security & Governance</div>
+              <p className="text-[11px] leading-relaxed">
+                Append-only immutable audit trail. All AI outputs are framed strictly as decision support requiring
+                human review by the District Authority.
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between text-[11px] gap-2">
+            <div>
+              Designed for transparency, accountability, and citizen oversight in parliamentary development expenditure.
+            </div>
+            <div className="text-slate-500">
+              Government of India • National Informatics Centre Standard
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

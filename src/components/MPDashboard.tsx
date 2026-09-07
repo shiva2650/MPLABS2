@@ -1,73 +1,86 @@
 import React, { useState } from 'react';
-import { Project, UserProfile } from '../types';
-import { ApiService } from '../services/api';
+import { User, Project, Alert } from '../types/index.ts';
+import { recommendNewWork } from '../services/api.ts';
 import {
+  Building2,
   PlusCircle,
-  AlertTriangle,
-  Building,
-  Coins,
+  IndianRupee,
   FileCheck,
-  CheckCircle,
-  HelpCircle,
+  CheckCircle2,
   Clock,
+  AlertTriangle,
   Send,
   Eye,
+  Check,
+  ShieldAlert
 } from 'lucide-react';
 
-interface MPDashboardProps {
-  currentUser: UserProfile;
+interface MpDashboardProps {
+  user: User;
   projects: Project[];
-  onSelectProject: (project: Project) => void;
-  onRefresh: () => void;
+  alerts: Alert[];
+  onSelectProject: (p: Project) => void;
+  onRefreshData: () => void;
 }
 
-export const MPDashboard: React.FC<MPDashboardProps> = ({
-  currentUser,
+export const MpDashboard: React.FC<MpDashboardProps> = ({
+  user,
   projects,
+  alerts,
   onSelectProject,
-  onRefresh,
+  onRefreshData
 }) => {
-  const [showRecommendModal, setShowRecommendModal] = useState<boolean>(false);
-  const [title, setTitle] = useState<string>('');
-  const [description, setDescription] = useState<string>('');
-  const [sector, setSector] = useState<string>('Roads, Pathways & Bridges');
-  const [estimatedCostLakhs, setEstimatedCostLakhs] = useState<string>('35.0');
-  const [locationName, setLocationName] = useState<string>('Chandrayangutta Ward, Hyderabad');
-  const [financialYear, setFinancialYear] = useState<string>('2024-25');
-  const [submitting, setSubmitting] = useState<boolean>(false);
-  const [modalError, setModalError] = useState<string | null>(null);
-
-  // My constituency projects
-  const myProjects = projects.filter((p) => p.mpId === currentUser.userId);
+  const [showRecommendModal, setShowRecommendModal] = useState(false);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('Drinking Water');
+  const [estimatedCost, setEstimatedCost] = useState('');
+  const [locationAddress, setLocationAddress] = useState('');
+  const [latitude, setLatitude] = useState('18.5724');
+  const [longitude, setLongitude] = useState('79.1312');
+  const [submitting, setSubmitting] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Financial calculations
-  const entitlementLakhs = 500.0; // Standard 5 Crore annual normative allocation
-  const totalRecommended = myProjects.reduce((acc, p) => acc + p.estimatedCostLakhs, 0);
-  const totalSanctioned = myProjects.reduce((acc, p) => acc + p.sanctionedCostLakhs, 0);
-  const totalExpenditure = myProjects.reduce((acc, p) => acc + p.expenditureLakhs, 0);
-  const availableBalance = Math.max(0, entitlementLakhs - totalSanctioned);
+  const totalEntitlement = 50000000; // ₹ 5.00 Crore annual baseline limit
+  const recommendedAmount = projects.reduce((acc, p) => acc + p.estimatedCost, 0);
+  const sanctionedAmount = projects.reduce((acc, p) => acc + p.sanctionedCost, 0);
+  const utilizedAmount = projects.reduce((acc, p) => acc + p.utilizedCost, 0);
+  const uncommittedBalance = Math.max(0, totalEntitlement - sanctionedAmount);
+
+  const formatLakhs = (amt: number) => `₹${(amt / 100000).toFixed(2)} Lakhs`;
+  const formatCrores = (amt: number) => `₹${(amt / 10000000).toFixed(2)} Cr`;
 
   const handleRecommendSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
-    setModalError(null);
+    if (!title || !estimatedCost || !locationAddress) {
+      setErrorMsg('Please fill in all mandatory fields.');
+      return;
+    }
 
+    setSubmitting(true);
+    setErrorMsg(null);
     try {
-      await ApiService.recommendWork({
-        title: title.trim(),
-        description: description.trim(),
-        sector,
-        estimatedCostLakhs: parseFloat(estimatedCostLakhs),
-        locationName: locationName.trim(),
-        financialYear,
+      await recommendNewWork({
+        title,
+        description,
+        category,
+        estimatedCost: Number(estimatedCost),
+        locationAddress,
+        latitude: Number(latitude) || 18.5724,
+        longitude: Number(longitude) || 79.1312
       });
 
-      setShowRecommendModal(false);
+      setSuccessMsg('Work proposal submitted to District Authority for administrative sanction.');
       setTitle('');
       setDescription('');
-      onRefresh();
+      setEstimatedCost('');
+      setLocationAddress('');
+      setShowRecommendModal(false);
+      onRefreshData();
     } catch (err: any) {
-      setModalError(err.message || 'Failed to submit recommendation.');
+      setErrorMsg(err.message || 'Failed to submit proposal.');
     } finally {
       setSubmitting(false);
     }
@@ -75,334 +88,362 @@ export const MPDashboard: React.FC<MPDashboardProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Welcome & Constituency Banner */}
-      <div className="bg-white border border-stone-200 rounded-lg p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 bg-sky-100 text-sky-900 rounded text-[11px] font-bold">
-              MP Workspace • 18th Lok Sabha
-            </span>
-            <span className="text-xs text-stone-500 font-medium">
-              Constituency: {currentUser.constituency}, {currentUser.state}
-            </span>
-          </div>
-          <h2 className="text-xl font-bold text-stone-900 mt-1">
-            {currentUser.name}
-          </h2>
-          <p className="text-xs text-stone-600 mt-0.5">
-            Member of Parliament (Lok Sabha) • Dedicated Work Recommendation &amp; Constituency Asset Tracker
-          </p>
-        </div>
-
-        <button
-          id="mp-btn-recommend-work"
-          onClick={() => setShowRecommendModal(true)}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-sky-900 hover:bg-sky-950 rounded shadow-xs transition-colors shrink-0"
-        >
-          <PlusCircle className="w-4 h-4" />
-          Recommend New Work
-        </button>
-      </div>
-
-      {/* Entitlement & Financial Health Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>Annual Entitlement Limit</span>
-            <Building className="w-4 h-4 text-sky-800" />
-          </div>
-          <div className="text-xl font-bold text-stone-900 font-mono mt-1">
-            ₹{entitlementLakhs.toFixed(2)} Lakhs
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">FY 2024-25 Ceiling</div>
-        </div>
-
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>Works Recommended</span>
-            <Coins className="w-4 h-4 text-amber-700" />
-          </div>
-          <div className="text-xl font-bold text-stone-900 font-mono mt-1">
-            ₹{totalRecommended.toFixed(2)} Lakhs
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">{myProjects.length} Works Proposed</div>
-        </div>
-
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>Sanctioned Allocation</span>
-            <FileCheck className="w-4 h-4 text-indigo-700" />
-          </div>
-          <div className="text-xl font-bold text-stone-900 font-mono mt-1">
-            ₹{totalSanctioned.toFixed(2)} Lakhs
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">Approved by District Authority</div>
-        </div>
-
-        <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
-          <div className="text-stone-500 font-medium flex items-center justify-between">
-            <span>Available Balance Limit</span>
-            <Coins className="w-4 h-4 text-emerald-800" />
-          </div>
-          <div className="text-xl font-bold text-emerald-800 font-mono mt-1">
-            ₹{availableBalance.toFixed(2)} Lakhs
-          </div>
-          <div className="text-[11px] text-stone-500 mt-0.5">Ready for new works</div>
-        </div>
-      </div>
-
-      {/* My Constituency Works Table */}
-      <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-stone-200">
+      {/* Official MP Banner */}
+      <div className="bg-gradient-to-r from-blue-950 to-indigo-900 text-white p-5 rounded-lg shadow-xs border-b-4 border-amber-500">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h3 className="text-sm font-bold text-stone-900">
-              Constituency Developmental Works ({myProjects.length})
-            </h3>
-            <p className="text-xs text-stone-500">
-              Status, progress velocity, and integrity evaluations for {currentUser.constituency}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs bg-amber-500 text-slate-950 font-extrabold px-2 py-0.5 rounded uppercase">
+                Member of Parliament
+              </span>
+              <span className="text-xs text-blue-200">
+                {user.house || 'Lok Sabha'} • {user.constituency} ({user.state})
+              </span>
+            </div>
+            <h2 className="text-xl font-extrabold">{user.name}</h2>
+            <p className="text-xs text-blue-200 mt-0.5">
+              Constituency Development Management & Fund Utilization Console
             </p>
           </div>
+
+          <button
+            onClick={() => setShowRecommendModal(true)}
+            className="self-start md:self-auto px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-1.5"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Recommend New Work</span>
+          </button>
+        </div>
+      </div>
+
+      {successMsg && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-md text-xs font-medium flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <button onClick={() => setSuccessMsg(null)} className="text-emerald-700 hover:text-emerald-900 text-xs">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* MP Financial Entitlement Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="bg-white p-3.5 rounded-lg border border-gray-200 shadow-2xs">
+          <div className="text-[11px] font-bold text-gray-500 uppercase">Annual Entitlement</div>
+          <div className="text-lg font-extrabold text-blue-950 mt-1">{formatCrores(totalEntitlement)}</div>
+          <div className="text-[10px] text-gray-500">Fixed MoSPI limit</div>
         </div>
 
-        <div className="border border-stone-200 rounded-md overflow-x-auto">
-          <table className="w-full text-left text-xs text-stone-700 border-collapse">
-            <thead className="bg-stone-100 text-stone-800 font-semibold uppercase text-[10px] tracking-wider border-b border-stone-200">
+        <div className="bg-white p-3.5 rounded-lg border border-gray-200 shadow-2xs">
+          <div className="text-[11px] font-bold text-gray-500 uppercase">Recommended Value</div>
+          <div className="text-lg font-extrabold text-blue-900 mt-1">{formatLakhs(recommendedAmount)}</div>
+          <div className="text-[10px] text-blue-700">{projects.length} Works proposed</div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-lg border border-gray-200 shadow-2xs">
+          <div className="text-[11px] font-bold text-gray-500 uppercase">Sanctioned Value</div>
+          <div className="text-lg font-extrabold text-indigo-900 mt-1">{formatLakhs(sanctionedAmount)}</div>
+          <div className="text-[10px] text-indigo-700">Administratively committed</div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-lg border border-gray-200 shadow-2xs">
+          <div className="text-[11px] font-bold text-gray-500 uppercase">Expenditure Disbursed</div>
+          <div className="text-lg font-extrabold text-emerald-800 mt-1">{formatLakhs(utilizedAmount)}</div>
+          <div className="text-[10px] text-emerald-700">Against physical milestones</div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-lg border border-gray-200 shadow-2xs">
+          <div className="text-[11px] font-bold text-gray-500 uppercase">Uncommitted Balance</div>
+          <div className="text-lg font-extrabold text-amber-900 mt-1">{formatLakhs(uncommittedBalance)}</div>
+          <div className="text-[10px] text-amber-700">Available for new works</div>
+        </div>
+      </div>
+
+      {/* Constituency AI Alerts Section */}
+      {alerts.length > 0 && (
+        <div className="bg-amber-50/70 border border-amber-200 rounded-lg p-4 shadow-2xs">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldAlert className="w-4 h-4 text-amber-800" />
+            <h3 className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+              Constituency Decision Support Alerts ({alerts.length})
+            </h3>
+          </div>
+          <p className="text-xs text-amber-900 mb-3">
+            The automated integrity system flagged these works for administrative verification. Per guidelines,
+            these require field verification by the District Authority.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {alerts.slice(0, 4).map((alt) => (
+              <div
+                key={alt.id}
+                className="bg-white p-3 rounded border border-amber-200 hover:border-amber-300 transition-colors"
+              >
+                <div className="flex items-center justify-between text-[10px] mb-1">
+                  <span className="font-bold text-blue-900">{alt.workId}</span>
+                  <span className="font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 uppercase">
+                    {alt.type}
+                  </span>
+                </div>
+                <div className="text-xs font-bold text-gray-900 line-clamp-1 mb-1">{alt.projectTitle}</div>
+                <div className="text-xs text-gray-600 line-clamp-2">{alt.reason}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Constituency Works Table */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-2xs overflow-hidden">
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
+          <div>
+            <h3 className="text-sm font-extrabold text-gray-900">
+              Works Recommended in {user.constituency}
+            </h3>
+            <p className="text-xs text-gray-600">
+              Live physical and financial monitoring of parliamentary works
+            </p>
+          </div>
+          <span className="text-xs bg-blue-100 text-blue-900 font-bold px-2.5 py-1 rounded-full">
+            {projects.length} Works
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs text-gray-700 border-collapse">
+            <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px] border-b border-gray-200">
               <tr>
-                <th className="p-2.5 border-r border-stone-200">Work Code</th>
-                <th className="p-2.5 border-r border-stone-200">Work Description / Title</th>
-                <th className="p-2.5 border-r border-stone-200">Sector</th>
-                <th className="p-2.5 border-r border-stone-200 text-right">Estimated</th>
-                <th className="p-2.5 border-r border-stone-200 text-right">Sanctioned</th>
-                <th className="p-2.5 border-r border-stone-200 text-center">Status</th>
-                <th className="p-2.5 border-r border-stone-200 text-center">Progress</th>
-                <th className="p-2.5 border-r border-stone-200 text-center">AI Risk</th>
-                <th className="p-2.5 text-center">Action</th>
+                <th className="py-2.5 px-3">Work ID & Title</th>
+                <th className="py-2.5 px-3">Category</th>
+                <th className="py-2.5 px-3 text-right">Estimated</th>
+                <th className="py-2.5 px-3 text-right">Sanctioned</th>
+                <th className="py-2.5 px-3 text-right">Disbursed</th>
+                <th className="py-2.5 px-3 text-center">Status</th>
+                <th className="py-2.5 px-3 text-center">Physical Progress</th>
+                <th className="py-2.5 px-3 text-center">Risk Tier</th>
+                <th className="py-2.5 px-3 text-center">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-stone-200 bg-white">
-              {myProjects.map((p) => (
-                <tr key={p.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="p-2.5 font-mono text-stone-600 font-semibold border-r border-stone-200">
-                    {p.workCode}
+            <tbody className="divide-y divide-gray-100">
+              {projects.map((proj) => (
+                <tr key={proj.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="py-2.5 px-3">
+                    <div className="font-bold text-blue-900 text-[10px]">{proj.workId}</div>
+                    <div className="font-bold text-gray-900 text-xs line-clamp-1">{proj.title}</div>
+                    <div className="text-[10px] text-gray-500 truncate">{proj.locationAddress}</div>
                   </td>
-                  <td className="p-2.5 border-r border-stone-200 max-w-xs">
-                    <div className="font-bold text-stone-900">{p.title}</div>
-                    <div className="text-[11px] text-stone-500 truncate">{p.locationName}</div>
+                  <td className="py-2.5 px-3 font-medium text-gray-800">{proj.category}</td>
+                  <td className="py-2.5 px-3 text-right font-medium text-gray-800">
+                    {formatLakhs(proj.estimatedCost)}
                   </td>
-                  <td className="p-2.5 border-r border-stone-200">{p.sector}</td>
-                  <td className="p-2.5 text-right font-mono border-r border-stone-200">
-                    ₹{p.estimatedCostLakhs.toFixed(2)}L
+                  <td className="py-2.5 px-3 text-right font-bold text-indigo-900">
+                    {proj.sanctionedCost > 0 ? formatLakhs(proj.sanctionedCost) : 'Pending'}
                   </td>
-                  <td className="p-2.5 text-right font-mono border-r border-stone-200 font-medium">
-                    {p.sanctionedCostLakhs > 0 ? `₹${p.sanctionedCostLakhs.toFixed(2)}L` : '—'}
+                  <td className="py-2.5 px-3 text-right font-bold text-emerald-800">
+                    {formatLakhs(proj.utilizedCost)}
                   </td>
-                  <td className="p-2.5 text-center border-r border-stone-200">
+                  <td className="py-2.5 px-3 text-center">
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        p.status === 'Completed'
+                      className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
+                        proj.status === 'Completed'
                           ? 'bg-emerald-100 text-emerald-800'
-                          : p.status === 'Ongoing'
+                          : proj.status === 'Ongoing'
                           ? 'bg-blue-100 text-blue-800'
-                          : p.status === 'Delayed'
-                          ? 'bg-orange-100 text-orange-800'
-                          : p.status === 'Sanctioned'
-                          ? 'bg-indigo-100 text-indigo-800'
-                          : 'bg-stone-100 text-stone-700'
+                          : proj.status === 'Delayed'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-gray-100 text-gray-700'
                       }`}
                     >
-                      {p.status}
+                      {proj.status}
                     </span>
                   </td>
-                  <td className="p-2.5 text-center border-r border-stone-200">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <div className="w-12 bg-stone-200 h-1.5 rounded-full overflow-hidden">
+                  <td className="py-2.5 px-3 text-center">
+                    <div className="w-16 mx-auto">
+                      <div className="text-[10px] font-bold text-gray-700 mb-0.5">
+                        {proj.completionPercentage}%
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
                         <div
-                          className="bg-sky-900 h-full rounded-full"
-                          style={{ width: `${p.progressPercentage}%` }}
+                          className="h-1.5 bg-blue-900 rounded-full"
+                          style={{ width: `${proj.completionPercentage}%` }}
                         />
                       </div>
-                      <span className="font-mono text-[11px]">{p.progressPercentage}%</span>
                     </div>
                   </td>
-                  <td className="p-2.5 text-center border-r border-stone-200">
+                  <td className="py-2.5 px-3 text-center">
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        p.riskLevel === 'CRITICAL' || p.riskLevel === 'HIGH'
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        proj.riskLevel === 'Critical'
                           ? 'bg-red-100 text-red-800'
-                          : p.riskLevel === 'MEDIUM'
+                          : proj.riskLevel === 'High'
+                          ? 'bg-rose-100 text-rose-800'
+                          : proj.riskLevel === 'Medium'
                           ? 'bg-amber-100 text-amber-800'
                           : 'bg-emerald-100 text-emerald-800'
                       }`}
                     >
-                      {p.riskScore}/100
+                      {proj.riskLevel}
                     </span>
                   </td>
-                  <td className="p-2.5 text-center">
+                  <td className="py-2.5 px-3 text-center">
                     <button
-                      id={`mp-btn-view-details-${p.id}`}
-                      onClick={() => onSelectProject(p)}
-                      className="px-2.5 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-50 border border-sky-200 rounded transition-colors inline-flex items-center gap-1"
+                      onClick={() => onSelectProject(proj)}
+                      className="p-1 text-blue-900 hover:bg-blue-100 rounded transition-colors"
+                      title="Inspect Project File"
                     >
-                      <Eye className="w-3.5 h-3.5" />
-                      View
+                      <Eye className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>
               ))}
-
-              {myProjects.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="p-6 text-center text-stone-500">
-                    No works recommended for this constituency yet. Click "Recommend New Work" above.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modal: Recommend New Work with Instant AI Check */}
+      {/* Modal: Recommend New Work */}
       {showRecommendModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
-          <div className="bg-white border border-stone-300 rounded-lg shadow-xl w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-4 bg-sky-950 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-lg max-w-xl w-full shadow-2xl border border-gray-300 overflow-hidden">
+            <div className="bg-blue-950 text-white p-4 flex items-center justify-between border-b-2 border-amber-500">
               <div className="flex items-center gap-2">
                 <PlusCircle className="w-5 h-5 text-amber-400" />
-                <h3 className="text-sm font-bold">
-                  Recommend New MPLADS Development Work
-                </h3>
+                <h3 className="text-sm font-bold">Recommend New MPLADS Development Work</h3>
               </div>
               <button
                 onClick={() => setShowRecommendModal(false)}
-                className="text-stone-300 hover:text-white text-lg font-bold"
+                className="text-gray-300 hover:text-white text-sm"
               >
-                &times;
+                ✕
               </button>
             </div>
 
-            <form onSubmit={handleRecommendSubmit} className="p-5 space-y-3.5 text-xs">
-              {modalError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded text-red-800 flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                  <span>{modalError}</span>
+            <form onSubmit={handleRecommendSubmit} className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto">
+              {errorMsg && (
+                <div className="p-2.5 bg-red-50 text-red-800 text-xs rounded border border-red-200">
+                  {errorMsg}
                 </div>
               )}
 
               <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Title of Developmental Asset *
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  Title of Proposed Work *
                 </label>
                 <input
-                  id="rec-input-title"
                   type="text"
+                  required
+                  placeholder="e.g. Construction of Community Health Sub-Centre at Jagtial"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Construction of Community Hall & Skill Center"
-                  className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-sky-800"
-                  required
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-900"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">
-                    Eligible Sector (Guidelines 2010) *
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                    Asset Category *
                   </label>
                   <select
-                    id="rec-select-sector"
-                    value={sector}
-                    onChange={(e) => setSector(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900 bg-white"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-900"
                   >
-                    <option value="Roads, Pathways & Bridges">Roads, Pathways &amp; Bridges</option>
-                    <option value="Drinking Water Facility">Drinking Water Facility</option>
-                    <option value="Sanitation & Public Health">Sanitation &amp; Public Health</option>
-                    <option value="Education & School Infrastructure">Education &amp; School Infrastructure</option>
+                    <option value="Drinking Water">Drinking Water</option>
+                    <option value="Education & Schools">Education & Schools</option>
+                    <option value="Health & Sanitation">Health & Sanitation</option>
+                    <option value="Roads & Pathways">Roads & Pathways</option>
+                    <option value="Rural Electrification">Rural Electrification</option>
                     <option value="Community Infrastructure">Community Infrastructure</option>
-                    <option value="Irrigation & Flood Control">Irrigation &amp; Flood Control</option>
-                    <option value="Electricity & Non-Conventional Energy">Electricity &amp; Non-Conventional Energy</option>
-                    <option value="Sports & Youth Development">Sports &amp; Youth Development</option>
+                    <option value="Irrigation & Agriculture">Irrigation & Agriculture</option>
+                    <option value="Sports & Youth Facilities">Sports & Youth Facilities</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">
-                    Estimated Cost (₹ in Lakhs) *
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                    Estimated Cost (INR ₹) *
                   </label>
                   <input
-                    id="rec-input-cost"
                     type="number"
-                    step="0.1"
-                    min="1"
-                    max="500"
-                    value={estimatedCostLakhs}
-                    onChange={(e) => setEstimatedCostLakhs(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-sky-800"
                     required
+                    placeholder="e.g. 2500000 (₹25 Lakhs)"
+                    value={estimatedCost}
+                    onChange={(e) => setEstimatedCost(e.target.value)}
+                    className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-900"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Location Name &amp; Landmark *
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  Location / Village / Ward Address *
                 </label>
                 <input
-                  id="rec-input-location"
                   type="text"
-                  value={locationName}
-                  onChange={(e) => setLocationName(e.target.value)}
-                  placeholder="e.g. Near Govt High School, Old City, Hyderabad"
-                  className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-sky-800"
                   required
+                  placeholder="e.g. Near Old Bus Stand, Choppadandi Gram Panchayat, Karimnagar"
+                  value={locationAddress}
+                  onChange={(e) => setLocationAddress(e.target.value)}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-900"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                    GPS Latitude (°N)
+                  </label>
+                  <input
+                    type="text"
+                    value={latitude}
+                    onChange={(e) => setLatitude(e.target.value)}
+                    className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                    GPS Longitude (°E)
+                  </label>
+                  <input
+                    type="text"
+                    value={longitude}
+                    onChange={(e) => setLongitude(e.target.value)}
+                    className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Detailed Justification &amp; Community Beneficiaries
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+                  Public Need / Justification
                 </label>
                 <textarea
-                  id="rec-input-description"
                   rows={3}
+                  placeholder="Explain how this community asset benefits local citizens under the 2010 Guidelines..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Explain how this durable community asset benefits the local population in accordance with MPLADS guidelines..."
-                  className="w-full px-3 py-2 border border-stone-300 rounded text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-sky-800"
+                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md text-gray-900"
                 />
               </div>
 
-              {/* Automatic AI Preliminary Baseline Preview */}
-              <div className="p-3 bg-stone-100 border border-stone-200 rounded text-[11px] space-y-1">
-                <div className="font-bold text-stone-800 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-sky-800" />
-                  Automated Integrity Engine Verification on Submission:
-                </div>
-                <div className="text-stone-600">
-                  • <strong>Cost Anomaly Check:</strong> Compares proposed ₹{estimatedCostLakhs}L against statistical baseline for {sector} in {currentUser.state}.
-                </div>
-                <div className="text-stone-600">
-                  • <strong>Duplicate Search:</strong> Scans existing sanctioned works in {currentUser.district} to prevent redundant works.
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200">
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setShowRecommendModal(false)}
-                  className="px-3.5 py-2 text-stone-700 hover:bg-stone-100 border border-stone-300 rounded font-medium"
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-md border border-gray-300"
                 >
                   Cancel
                 </button>
                 <button
-                  id="rec-submit-btn"
                   type="submit"
                   disabled={submitting}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-900 hover:bg-sky-950 disabled:opacity-50 text-white font-bold rounded shadow-xs"
+                  className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-md flex items-center gap-1.5"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  {submitting ? 'Submitting & Verifying...' : 'Submit Recommendation to District Authority'}
+                  <span>{submitting ? 'Submitting Proposal...' : 'Recommend to District Magistrate'}</span>
                 </button>
               </div>
             </form>
