@@ -79,7 +79,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [activeTab]);
 
   const pendingProjects = projects.filter((p) => p.status === 'Recommended' || p.status === 'Under Review');
-  const openAlerts = alerts.filter((a) => a.status === 'Open' || a.status === 'Investigating');
+  const openAlerts = alerts.filter((a) => a.status === 'Open' || a.status === 'Under Review');
 
   const handleSanctionSubmit = async (approved: boolean) => {
     if (!selectedProjectForSanction) return;

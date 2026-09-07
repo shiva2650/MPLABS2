@@ -11,12 +11,48 @@ import {
 const TOKEN_KEY = 'mplads_auth_token';
 const USER_KEY = 'mplads_auth_user';
 
+// In-memory fallback if localStorage is unavailable or blocked in iframe sandbox
+const memoryStore: Record<string, string> = {};
+
+function safeStorageGet(key: string): string | null {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem(key);
+    }
+  } catch (err) {
+    // Access denied or blocked in iframe
+  }
+  return memoryStore[key] || null;
+}
+
+function safeStorageSet(key: string, val: string): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, val);
+    }
+  } catch (err) {
+    // Access denied or blocked in iframe
+  }
+  memoryStore[key] = val;
+}
+
+function safeStorageRemove(key: string): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(key);
+    }
+  } catch (err) {
+    // Access denied or blocked in iframe
+  }
+  delete memoryStore[key];
+}
+
 export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return safeStorageGet(TOKEN_KEY);
 }
 
 export function getStoredUser(): User | null {
-  const str = localStorage.getItem(USER_KEY);
+  const str = safeStorageGet(USER_KEY);
   if (!str) return null;
   try {
     return JSON.parse(str);
@@ -49,8 +85,8 @@ export async function loginUser(userId: string, password: string): Promise<{ tok
     throw new Error(data.error || 'Failed to authenticate');
   }
 
-  localStorage.setItem(TOKEN_KEY, data.token);
-  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  safeStorageSet(TOKEN_KEY, data.token);
+  safeStorageSet(USER_KEY, JSON.stringify(data.user));
   return data;
 }
 
@@ -66,8 +102,8 @@ export async function logoutUser(): Promise<void> {
       // Ignore network errors on logout
     }
   }
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  safeStorageRemove(TOKEN_KEY);
+  safeStorageRemove(USER_KEY);
 }
 
 export async function fetchPublicStats(): Promise<{

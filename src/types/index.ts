@@ -10,6 +10,7 @@ export interface User {
   name: string;
   role: UserRole;
   email: string;
+  house?: HouseType;
   state?: string;
   district?: string;
   constituency?: string;
@@ -187,7 +188,13 @@ export interface Alert {
   createdAt: string;
 }
 
-export type IssueType = 'incomplete work' | 'wrong location' | 'asset not found' | 'damaged asset' | 'other';
+export type IssueType =
+  | 'incomplete work'
+  | 'wrong location'
+  | 'asset not found'
+  | 'damaged asset'
+  | 'Substandard Construction Quality'
+  | 'other';
 
 export interface CitizenFeedback {
   id: string;

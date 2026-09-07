@@ -246,10 +246,12 @@ export const CitizenFeedbackModal: React.FC<CitizenFeedbackModalProps> = ({
                     </div>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                        item.status === 'Action Taken'
+                        item.status === 'Resolved'
                           ? 'bg-emerald-100 text-emerald-800'
-                          : item.status === 'Under Review'
+                          : item.status === 'Under Investigation'
                           ? 'bg-amber-100 text-amber-800'
+                          : item.status === 'Dismissed'
+                          ? 'bg-gray-100 text-gray-700'
                           : 'bg-blue-100 text-blue-800'
                       }`}
                     >

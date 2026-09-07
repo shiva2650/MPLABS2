@@ -24,6 +24,7 @@ import { AgencyDashboard } from './components/AgencyDashboard.tsx';
 import { AiVerificationLab } from './components/AiVerificationLab.tsx';
 import { ProjectDetailModal } from './components/ProjectDetailModal.tsx';
 import { VendorAnalyticsView } from './components/VendorAnalyticsView.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import {
   Building2,
   MapPin,
@@ -75,19 +76,28 @@ export default function App() {
     setLoading(true);
     try {
       const [stats, mps, projects, alerts, feedback, vendors] = await Promise.all([
-        fetchPublicStats(),
-        fetchMpStats(),
-        fetchProjects(),
+        fetchPublicStats().catch((e) => {
+          console.warn('Failed to fetch public stats:', e);
+          return null;
+        }),
+        fetchMpStats().catch((e) => {
+          console.warn('Failed to fetch MP stats:', e);
+          return [];
+        }),
+        fetchProjects().catch((e) => {
+          console.warn('Failed to fetch projects:', e);
+          return [];
+        }),
         fetchAlerts().catch(() => []),
         fetchFeedback().catch(() => []),
         fetchVendorAnalytics().catch(() => [])
       ]);
       setPublicStats(stats);
-      setMpLedger(mps);
-      setAllProjects(projects);
-      setAllAlerts(alerts);
-      setAllFeedback(feedback);
-      setAllVendors(vendors);
+      setMpLedger(mps || []);
+      setAllProjects(projects || []);
+      setAllAlerts(alerts || []);
+      setAllFeedback(feedback || []);
+      setAllVendors(vendors || []);
     } catch (err) {
       console.error('Error fetching portal data:', err);
     } finally {
@@ -264,11 +274,13 @@ export default function App() {
             />
 
             {/* Interactive GIS OpenStreetMap */}
-            <GisMap
-              projects={filteredProjects}
-              onSelectProject={(p) => setInspectedProject(p)}
-              selectedProjectId={inspectedProject?.id}
-            />
+            <ErrorBoundary fallbackTitle="GIS Mapping System">
+              <GisMap
+                projects={filteredProjects}
+                onSelectProject={(p) => setInspectedProject(p)}
+                selectedProjectId={inspectedProject?.id}
+              />
+            </ErrorBoundary>
 
             {/* Parliamentary MP Progress Ledger Table */}
             <MpDataTable
