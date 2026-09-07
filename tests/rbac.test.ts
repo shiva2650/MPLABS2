@@ -1,6 +1,7 @@
 import express from 'express';
 import { apiRouter } from '../server/routes.js';
 import { generateToken, authenticateToken } from '../server/auth.js';
+import { db } from '../server/db.js';
 import { User } from '../src/types/index.js';
 
 interface TestResult {
@@ -195,6 +196,17 @@ export async function runRbacTests() {
 
   // 4. Multi-Authority Approval Chain Enforcements
   console.log('\nGroup 4: Multi-Authority Approval State Machine Enforcements');
+
+  // The seeded demonstration project is intentionally delayed. Reset this
+  // dedicated workflow fixture so the transition sequence below is repeatable.
+  const workflowProject = db.projects.find(project => project.id === 'PRJ-2024-001');
+  if (!workflowProject) {
+    throw new Error('Workflow test fixture PRJ-2024-001 is unavailable.');
+  }
+  workflowProject.status = 'Recommended';
+  workflowProject.currentAuthorityQueue = 'DISTRICT_AUTHORITY';
+  workflowProject.approvalHistory = [];
+
   res = await makeRequest('POST', '/projects/PRJ-2024-001/transition', mpToken, {
     targetStatus: 'State Approved'
   });

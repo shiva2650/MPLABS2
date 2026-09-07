@@ -7,7 +7,10 @@ import { syncFromGovernmentConnector } from './server/dataIngestion.js';
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const configuredPort = Number.parseInt(process.env.PORT ?? '', 10);
+  const PORT = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535
+    ? configuredPort
+    : 3000;
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));

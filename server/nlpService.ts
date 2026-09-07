@@ -230,9 +230,7 @@ Respond in ${lang.name}. Keep it professional and factual.`;
         candidateProjects.map(p => `• **${p.title}** (${p.projectCode})
   सांसद: ${p.mpName} (${p.district})
   स्वीकृत राशि: ₹${((p.sanctionedAmount || p.estimatedCost) / 100000).toFixed(1)} लाख | प्रगति: ${p.completionPercentage}% (${p.status})
-  जोखिम स्तर: ${p.riskAnalysis?.riskLevel || 'LOW'}`).join('
-
-') +
+  जोखिम स्तर: ${p.riskAnalysis?.riskLevel || 'LOW'}`).join('\n\n') +
         `
 
 यह डेटा eSAKSHI पोर्टल से सीधे सत्यापित है।`;
@@ -243,9 +241,7 @@ Respond in ${lang.name}. Keep it professional and factual.`;
         candidateProjects.map(p => `• **${p.title}** (${p.projectCode})
   ఎంపీ: ${p.mpName} (${p.district})
   మంజూరు: ₹${((p.sanctionedAmount || p.estimatedCost) / 100000).toFixed(1)} లక్షలు | పురోగతి: ${p.completionPercentage}% (${p.status})
-  రిస్క్ లెవెల్: ${p.riskAnalysis?.riskLevel || 'LOW'}`).join('
-
-') +
+  రిస్క్ లెవెల్: ${p.riskAnalysis?.riskLevel || 'LOW'}`).join('\n\n') +
         `
 
 ఈ డేటా eSAKSHI లెడ్జర్ ద్వారా ధృవీకరించబడింది.`;
@@ -256,9 +252,7 @@ Respond in ${lang.name}. Keep it professional and factual.`;
         candidateProjects.map(p => `• **${p.title}** (${p.projectCode})
   MP: ${p.mpName} (${p.constituency}, ${p.district})
   Sanctioned: ₹${((p.sanctionedAmount || p.estimatedCost) / 100000).toFixed(1)} Lakh | Progress: ${p.completionPercentage}% (${p.status})
-  Risk Level: ${p.riskAnalysis?.riskLevel || 'LOW'} | Agency: ${p.implementingAgencyName}`).join('
-
-') +
+  Risk Level: ${p.riskAnalysis?.riskLevel || 'LOW'} | Agency: ${p.implementingAgencyName}`).join('\n\n') +
         `
 
 All figures are synchronized with the MoSPI administrative ledger.`;
