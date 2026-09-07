@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MPLADS AI Integrity & Monitoring System</title>
+    <meta name="description" content="Government monitoring portal for MPLADS developmental projects, detecting cost and duplicate anomalies, verifying geotagged photos, predicting delays, and ensuring role-based transparency." />
+    <meta property="og:title" content="MPLADS AI Integrity & Monitoring System" />
+    <meta property="og:description" content="Government monitoring portal for MPLADS developmental projects, detecting cost and duplicate anomalies, verifying geotagged photos, predicting delays, and ensuring role-based transparency." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script>
+      // Self-correct GitHub Pages path to ensure trailing slash so relative assets (./assets/...) resolve properly
+      (function() {
+        var path = window.location.pathname;
+        if (window.location.hostname.endsWith('github.io') && !path.endsWith('/') && !path.includes('.')) {
+          window.location.replace(path + '/' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #F8F9F7; font-family: system-ui, -apple-system, sans-serif;">
+    <div id="root">
+      <!-- Pre-render Loading & Fail-Safe State (Replaced immediately when React mounts) -->
+      <div id="pre-render-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #1B3022;">
+        <div style="background: white; border: 1px solid #DDE5D4; border-radius: 16px; padding: 32px; max-width: 440px; width: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+          <!-- Emblem / Icon -->
+          <div style="width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 50%; background: #395C40; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 20px;">
+            🏛️
+          </div>
+          <div style="font-size: 11px; font-weight: 700; color: #588157; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px;">
+            Government of India • MoSPI
+          </div>
+          <h1 style="font-size: 18px; font-weight: 700; margin: 0 0 12px; color: #1B3022;">
+            MPLADS AI Vigilance Portal
+          </h1>
+          <p style="font-size: 13px; color: #6B7E6F; margin: 0 0 24px; line-height: 1.5;">
+            Initializing secure monitoring ledger and verifying cryptographic records...
+          </p>
+          
+          <!-- Animated Spinner -->
+          <div style="display: flex; justify-content: center; align-items: center; gap: 8px;">
+            <div style="width: 28px; height: 28px; border: 3px solid #E7EFE0; border-top-color: #395C40; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+          </div>
+          <style>
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
+          <!-- Delayed Fallback Option if scripts are delayed or blocked -->
+          <div id="loader-fallback-actions" style="display: none; margin-top: 24px; padding-top: 16px; border-top: 1px solid #E7EFE0;">
+            <p style="font-size: 12px; color: #B85338; margin-bottom: 12px;">
+              Taking longer than expected? Browser cache or network latency may be causing a delay.
+            </p>
+            <button onclick="localStorage.clear(); sessionStorage.clear(); window.location.reload();" style="background: #395C40; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">
+              Reset Cache & Reload
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      // Display fallback reset option after 5 seconds if React hasn't replaced #root
+      setTimeout(function() {
+        var fallback = document.getElementById('loader-fallback-actions');
+        if (fallback) fallback.style.display = 'block';
+      }, 5000);
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
