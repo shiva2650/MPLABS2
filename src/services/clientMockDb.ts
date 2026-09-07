@@ -1,14 +1,8 @@
-import { db, users } from '../../server/db.js';
+import { db, users, findDuplicateCandidates, mlAnomalyModel, approvalWorkflow, feedbackPipeline, notificationService, parseExternalMpladsData, calculateImpactMetrics, syncFromGovernmentConnector } from './browserBackend.js';
 import { Project, RiskAlert, CitizenFeedback, AuditLogEntry, User, DashboardSummary, DuplicateProjectCandidate, MLModelMetadata, DataQualityReport, NotificationLog } from '../types/index.js';
 import { authStorage } from './authService.js';
-import { findDuplicateCandidates } from '../../server/aiService.js';
-import { mlAnomalyModel } from '../../server/mlAnomalyModel.js';
-import { approvalWorkflow } from '../../server/approvalWorkflow.js';
-import { feedbackPipeline } from '../../server/feedbackService.js';
-import { notificationService } from '../../server/notificationService.js';
 import { verifyProjectSatelliteImagery } from '../../server/satelliteVerification.js';
 import { analyzeContractorNetwork } from '../../server/networkFraudDetection.js';
-import { parseExternalMpladsData, calculateImpactMetrics, syncFromGovernmentConnector } from '../../server/dataIngestion.js';
 
 export class ClientMockDbService {
   getCurrentUser(): User | null {

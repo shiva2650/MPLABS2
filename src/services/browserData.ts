@@ -1,10 +1,4 @@
-import crypto from 'crypto';
-import { Project, RiskAlert, CitizenFeedback, AuditLogEntry, User, DataQualityReport, NotificationLog, MLFeedbackRecord } from '../src/types/index.js';
-import { persistentDb, StorageSchema } from './persistentDb.js';
-
-export function sha256Hex(str: string): string {
-  return crypto.createHash('sha256').update(str).digest('hex');
-}
+import type { Project, RiskAlert, CitizenFeedback, AuditLogEntry, User, DataQualityReport, NotificationLog, MLFeedbackRecord } from '../types/index.js';
 
 export const users: (User & { passwordHash: string })[] = [
   {
@@ -823,7 +817,6 @@ export const initialProjects: Project[] = [
     ]
   }
 ];
-
 export const initialAlerts: RiskAlert[] = [
   {
     id: 'ALT-101',
@@ -912,7 +905,6 @@ export const initialAlerts: RiskAlert[] = [
     assignedOfficer: 'District Planning Officer'
   }
 ];
-
 export const initialFeedback: CitizenFeedback[] = [
   {
     id: 'FB-001',
@@ -975,7 +967,6 @@ export const initialFeedback: CitizenFeedback[] = [
     adminNotes: 'Escalated to Ministry Vigilance & Joint Collector for physical forensic audit.'
   }
 ];
-
 export const initialAuditLogs: AuditLogEntry[] = [
   {
     id: 'LOG-001',
@@ -1009,237 +1000,23 @@ export const initialAuditLogs: AuditLogEntry[] = [
   }
 ];
 
-export class DataStore {
-  private schema: StorageSchema;
+export const initialDataQualityReports: DataQualityReport[] = [{
+  id: 'DQR-2025-001',
+  totalRowsProcessed: 142,
+  validRowsImported: 138,
+  skippedRows: [
+    { rowIndex: 14, reason: 'Invalid non-numeric allocation' },
+    { rowIndex: 48, reason: 'Missing project title' }
+  ],
+  gpsCompletenessPct: 94.2,
+  sanctionDateCompletenessPct: 98.5,
+  vendorPanCompletenessPct: 88.0,
+  costValidityPct: 97.2,
+  agencyCompletenessPct: 96.0,
+  overallDataQualityScore: 93,
+  sourceConnector: 'eSAKSHI Public Export',
+  importTimestamp: '2025-02-28T04:00:00Z'
+}];
 
-  constructor() {
-    this.schema = persistentDb.initialize({
-      projects: JSON.parse(JSON.stringify(initialProjects)),
-      alerts: JSON.parse(JSON.stringify(initialAlerts)),
-      citizenFeedback: JSON.parse(JSON.stringify(initialFeedback)),
-      auditLogs: JSON.parse(JSON.stringify(initialAuditLogs)),
-      dataQualityReports: [
-        {
-          id: 'DQR-2025-001',
-          totalRowsProcessed: 142,
-          validRowsImported: 138,
-          skippedRows: [
-            { rowIndex: 14, reason: 'Invalid non-numeric allocation' },
-            { rowIndex: 48, reason: 'Missing project title' }
-          ],
-          gpsCompletenessPct: 94.2,
-          sanctionDateCompletenessPct: 98.5,
-          vendorPanCompletenessPct: 88.0,
-          costValidityPct: 97.2,
-          agencyCompletenessPct: 96.0,
-          overallDataQualityScore: 93,
-          sourceConnector: 'eSAKSHI Public Export',
-          importTimestamp: '2025-02-28T04:00:00Z'
-        }
-      ],
-      notifications: [],
-      mlFeedback: [],
-      latestLogHash: initialAuditLogs[0]?.entryHash || 'GENESIS_MPLADS_AUDIT_BLOCK_000000'
-    });
-  }
-
-  get projects(): Project[] {
-    return this.schema.projects;
-  }
-  set projects(p: Project[]) {
-    this.schema.projects = p;
-    persistentDb.persistSync();
-  }
-
-  get alerts(): RiskAlert[] {
-    return this.schema.alerts;
-  }
-  set alerts(a: RiskAlert[]) {
-    this.schema.alerts = a;
-    persistentDb.persistSync();
-  }
-
-  get citizenFeedback(): CitizenFeedback[] {
-    return this.schema.citizenFeedback;
-  }
-  set citizenFeedback(c: CitizenFeedback[]) {
-    this.schema.citizenFeedback = c;
-    persistentDb.persistSync();
-  }
-
-  get auditLogs(): AuditLogEntry[] {
-    return this.schema.auditLogs;
-  }
-  set auditLogs(logs: AuditLogEntry[]) {
-    this.schema.auditLogs = logs;
-    persistentDb.persistSync();
-  }
-
-  get dataQualityReports(): DataQualityReport[] {
-    return this.schema.dataQualityReports;
-  }
-  set dataQualityReports(reports: DataQualityReport[]) {
-    this.schema.dataQualityReports = reports;
-    persistentDb.persistSync();
-  }
-
-  get notifications(): NotificationLog[] {
-    return this.schema.notifications;
-  }
-  set notifications(n: NotificationLog[]) {
-    this.schema.notifications = n;
-    persistentDb.persistSync();
-  }
-
-  get mlFeedback(): MLFeedbackRecord[] {
-    return this.schema.mlFeedback;
-  }
-  set mlFeedback(f: MLFeedbackRecord[]) {
-    this.schema.mlFeedback = f;
-    persistentDb.persistSync();
-  }
-
-  getProjectsForUser(user: User | null): Project[] {
-    if (!user || user.role === 'PUBLIC' || user.role === 'VIEWER') {
-      return this.projects.map(p => this.sanitizeProjectForPublic(p));
-    }
-    if (user.role === 'SUPER_ADMIN' || user.role === 'MINISTRY') {
-      return this.projects;
-    }
-    if (user.role === 'STATE_NODAL') {
-      return this.projects.filter(p => !user.state || p.state === user.state);
-    }
-    if (user.role === 'MP') {
-      return this.projects.filter(p => p.mpId === user.userId || p.constituency === user.constituency);
-    }
-    if (user.role === 'ADMIN') {
-      return this.projects.filter(p => p.district === user.district || !user.district);
-    }
-    if (user.role === 'AGENCY' || user.role === 'PROJECT_MANAGER') {
-      return this.projects.filter(p => p.implementingAgencyId === user.agencyId);
-    }
-    return [];
-  }
-
-  getProjectByIdForUser(id: string, user: User | null): Project | null {
-    const project = this.projects.find(p => p.id === id || p.projectCode === id);
-    if (!project) return null;
-    if (!user || user.role === 'PUBLIC' || user.role === 'VIEWER') {
-      return this.sanitizeProjectForPublic(project);
-    }
-    if (user.role === 'SUPER_ADMIN' || user.role === 'MINISTRY') {
-      return project;
-    }
-    if (user.role === 'STATE_NODAL') {
-      if (user.state && project.state && project.state !== user.state) return null;
-      return project;
-    }
-    if (user.role === 'MP') {
-      if (project.mpId !== user.userId && project.constituency !== user.constituency) {
-        return null;
-      }
-      return project;
-    }
-    if (user.role === 'AGENCY' || user.role === 'PROJECT_MANAGER') {
-      if (user.agencyId && project.implementingAgencyId !== user.agencyId) {
-        return null;
-      }
-      return project;
-    }
-    if (user.role === 'ADMIN') {
-      if (user.district && project.district !== user.district) {
-        return null;
-      }
-      return project;
-    }
-    return project;
-  }
-
-  sanitizeProjectForPublic(p: Project): Project {
-    return {
-      ...p,
-      vendorPanMasked: 'CONFIDENTIAL',
-      documents: p.documents.filter(d => !d.isConfidential && (d.type === 'Sanction Order' || d.type === 'Completion Certificate')),
-      riskAnalysis: {
-        overallScore: p.riskAnalysis.overallScore,
-        riskLevel: p.riskAnalysis.riskLevel,
-        lastEvaluatedAt: p.riskAnalysis.lastEvaluatedAt,
-        costAnomalyScore: 0,
-        duplicateProbability: 0,
-        photoAnomalyScore: 0,
-        locationMismatch: false,
-        delayProbability: p.riskAnalysis.delayProbability,
-        reasons: ['Public view: High-level milestone metrics are monitored in accordance with MoSPI guidelines.'],
-        recommendations: [],
-        disclaimer: 'Notice: Operational indicators are subject to official field verification.'
-      },
-      payments: p.payments.map(pay => ({
-        id: pay.id,
-        installmentNo: pay.installmentNo,
-        amount: pay.amount,
-        sanctionOrderNo: pay.sanctionOrderNo,
-        paidAt: pay.paidAt,
-        status: pay.status,
-        beneficiaryAgency: p.implementingAgencyName
-      }))
-    };
-  }
-
-  addAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp' | 'entryHash' | 'prevHash'>): AuditLogEntry {
-    return persistentDb.appendAuditLog(entry);
-  }
-
-  verifyAuditLogIntegrity(): { isValid: boolean; verifiedCount: number; brokenAtId?: string } {
-    const logsChronological = [...this.auditLogs].reverse();
-    let prev = 'GENESIS_MPLADS_AUDIT_BLOCK_000000';
-    for (const log of logsChronological) {
-      if (log.prevHash && log.prevHash !== prev) {
-        return { isValid: false, verifiedCount: logsChronological.indexOf(log), brokenAtId: log.id };
-      }
-      if (log.entryHash) {
-        const hashPayload = `${log.prevHash || prev}|${log.id}|${log.timestamp}|${log.userId}|${log.userRole}|${log.action}|${log.targetEntity}|${log.targetId}|${log.previousValue || ''}|${log.newValue || ''}|${log.ipAddressMasked}`;
-        const recomputed = sha256Hex(hashPayload);
-        if (recomputed !== log.entryHash) {
-          return { isValid: false, verifiedCount: logsChronological.indexOf(log), brokenAtId: log.id };
-        }
-        prev = log.entryHash;
-      }
-    }
-    return { isValid: true, verifiedCount: this.auditLogs.length };
-  }
-
-  private backupLogsSnapshot: AuditLogEntry[] | null = null;
-  simulateTamperAuditLog(targetId?: string): { tamperedLogId: string; modifiedField: string; originalValue: string; maliciousValue: string } {
-    if (!this.backupLogsSnapshot) {
-      this.backupLogsSnapshot = JSON.parse(JSON.stringify(this.auditLogs));
-    }
-    const target = targetId
-      ? this.auditLogs.find(l => l.id === targetId)
-      : (this.auditLogs[Math.min(3, this.auditLogs.length - 1)] || this.auditLogs[0]);
-    if (!target) {
-      throw new Error('No audit log available to tamper with.');
-    }
-    const originalValue = target.newValue || target.action;
-    const maliciousValue = 'UNAUTHORIZED_ALTERATION: Status fraudulently marked Approved & Funds Released';
-    target.newValue = maliciousValue;
-    persistentDb.persistSync();
-    return {
-      tamperedLogId: target.id,
-      modifiedField: 'newValue',
-      originalValue,
-      maliciousValue
-    };
-  }
-
-  restoreAuditLogChain(): { restoredCount: number; message: string } {
-    if (this.backupLogsSnapshot) {
-      this.auditLogs = JSON.parse(JSON.stringify(this.backupLogsSnapshot));
-      this.backupLogsSnapshot = null;
-      persistentDb.persistSync();
-      return { restoredCount: this.auditLogs.length, message: 'Audit log chain restored to pristine cryptographic state.' };
-    }
-    return { restoredCount: this.auditLogs.length, message: 'Audit chain already in verified state.' };
-  }
-}
-
-export const db = new DataStore();
+export const initialMlFeedback: MLFeedbackRecord[] = [];
+export const initialNotifications: NotificationLog[] = [];
