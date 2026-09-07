@@ -255,6 +255,12 @@ apiRouter.post('/projects/recommend', requireRole(['MP', 'ADMIN', 'SUPER_ADMIN']
       error: 'Valid title, category, location address, and a positive estimated cost (> 0) are required.'
     });
   }
+  if (costNum > 500000000) {
+    return res.status(400).json({
+      error: 'Estimated cost exceeds statutory single-project ceiling (Max ₹50 Crore).'
+    });
+  }
+
   const latNum = Number(latitude);
   const lonNum = Number(longitude);
   const safeLat = isValidCoordinate(latNum, lonNum) ? latNum : 17.4100;

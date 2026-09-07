@@ -2,10 +2,12 @@ import {
   evaluateCostAnomaly,
   findDuplicateCandidates,
   calculateDelayPrediction,
+  evaluateDelayModelOnHoldout,
   verifyLocationCoordinates,
   verifyPhotoAuthenticity
 } from '../server/aiService.js';
 import { mlAnomalyModel } from '../server/mlAnomalyModel.js';
+import { forecastingService } from '../server/forecastingService.js';
 import { Project } from '../src/types/index.js';
 
 const mockProjects: Project[] = [
@@ -134,10 +136,9 @@ export async function runAnomalyTests() {
   console.log('\n--- 3. Duplicate Work Detection Testing ---');
   const duplicates = findDuplicateCandidates(mockProjects[1], mockProjects);
   test('Identifies real duplicate candidate within 500m (< 250m away)', duplicates.length > 0 && duplicates[0].distanceMeters < 500);
-  const duplicate = duplicates[0];
-  test('Flags Cross-MP / Cross-Constituency allocation overlap', duplicate !== undefined && duplicate.isCrossMp === true);
-  test('Surfaces overlapping sanction window factor', duplicate !== undefined && duplicate.overlappingSanctionWindow === true);
-  test('Calculates multi-factor specification match score >= 70%', duplicate !== undefined && duplicate.similarityScore >= 70);
+  test('Flags Cross-MP / Cross-Constituency allocation overlap', duplicates[0].isCrossMp === true);
+  test('Surfaces overlapping sanction window factor', duplicates[0].overlappingSanctionWindow === true);
+  test('Calculates multi-factor specification match score >= 70%', duplicates[0].similarityScore >= 70);
 
   // 4. PREDICTIVE DELAY & COST-OVERRUN FORECASTING
   console.log('\n--- 4. Predictive Delay & Cost-Overrun Forecasting ---');

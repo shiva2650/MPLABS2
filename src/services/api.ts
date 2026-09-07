@@ -124,27 +124,9 @@ async function handleFallbackRoute(url: string, options: RequestInit = {}): Prom
   if (path === '/api/notifications/test') {
     return clientMockDb.dispatchTestNotification();
   }
-  if (path === '/api/analytics/vendors') {
-    const network = await clientMockDb.getContractorNetwork();
-    return {
-      vendors: (network.vendorReports || []).map((v: any) => ({
-        name: v.vendorName,
-        totalProjects: v.totalProjects,
-        totalValueCr: v.totalSanctionedCr,
-        completionRate: v.completionRate,
-        riskExposureRating: v.riskLevel,
-      }))
-    };
-  }
 
   if (path === '/api/audit-logs/verify') {
     return clientMockDb.verifyAuditLogs();
-  }
-  if (path === '/api/audit-logs/simulate-tamper') {
-    return clientMockDb.simulateTamper();
-  }
-  if (path === '/api/audit-logs/restore') {
-    return clientMockDb.restoreAuditLogs();
   }
   if (path === '/api/audit-logs') {
     const logsData = await clientMockDb.getAuditLogs();
@@ -153,9 +135,6 @@ async function handleFallbackRoute(url: string, options: RequestInit = {}): Prom
 
   if (path === '/api/network/contractors') {
     return clientMockDb.getContractorNetwork();
-  }
-  if (path === '/api/evidence/verify') {
-    return clientMockDb.verifyEvidence(parsedBody);
   }
 
   const satMatch = path.match(/^\/api\/satellite\/([^/]+)$/);
@@ -170,13 +149,6 @@ async function handleFallbackRoute(url: string, options: RequestInit = {}): Prom
   const aiReportMatch = path.match(/^\/api\/ai\/audit-report\/([^/]+)$/);
   if (aiReportMatch) {
     return clientMockDb.generateAiAuditReport(aiReportMatch[1]);
-  }
-
-  if (path === '/api/chat/query') {
-    return clientMockDb.queryChatbot(parsedBody.query || '');
-  }
-  if (path === '/api/nlp/analyze-feedback') {
-    return clientMockDb.analyzeGrievanceFeedback(parsedBody);
   }
 
   if (path === '/api/public/summary') {

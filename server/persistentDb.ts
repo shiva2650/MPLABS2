@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
+import { sha256Hex } from '../src/utils/hash.js';
 import {
   Project,
   RiskAlert,
@@ -108,7 +108,7 @@ export class PersistentDatabase {
     const timestamp = new Date().toISOString();
     const prevHash = state.latestLogHash;
     const hashPayload = `${prevHash}|${id}|${timestamp}|${entry.userId}|${entry.userRole}|${entry.action}|${entry.targetEntity}|${entry.targetId}|${entry.previousValue || ''}|${entry.newValue || ''}|${entry.ipAddressMasked}`;
-    const entryHash = crypto.createHash('sha256').update(hashPayload).digest('hex');
+    const entryHash = sha256Hex(hashPayload);
 
     const log: AuditLogEntry = {
       ...entry,

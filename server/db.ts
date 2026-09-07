@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { sha256Hex } from '../src/utils/hash.js';
 import { Project, RiskAlert, CitizenFeedback, AuditLogEntry, User, DataQualityReport, NotificationLog, MLFeedbackRecord } from '../src/types/index.js';
 import { persistentDb, StorageSchema } from './persistentDb.js';
 
