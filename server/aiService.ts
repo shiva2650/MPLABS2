@@ -42,7 +42,11 @@ export function evaluateCostAnomaly(
     };
   }
 
-  if (cost > 500000000) {
+  // Demo governance threshold used by this prototype. It is intentionally configurable
+  // and should not be presented as a universal statutory MPLADS ceiling.
+  const highValueReviewThreshold = 5000000;
+
+  if (cost > highValueReviewThreshold) {
     return {
       isAnomaly: true,
       costScore: 98,
@@ -51,8 +55,8 @@ export function evaluateCostAnomaly(
       stdDev: 5000000,
       cohortSize: 1,
       percentageVariance: 999,
-      explanation: `Critical Anomaly: Proposed cost (₹${(cost / 10000000).toFixed(2)} Cr) exceeds statutory MPLADS single-project allocation limits.`,
-      reason: `Cost of ₹${(cost / 10000000).toFixed(2)} Cr exceeds statutory ₹50 Cr MPLADS single-work ceiling.`,
+      explanation: `Critical Anomaly: Proposed cost (₹${(cost / 100000).toFixed(1)}L) for ${project.category} exceeds the configured ₹50L high-value review threshold for this demo.`,
+      reason: `Cost of ₹${(cost / 100000).toFixed(1)}L for ${project.category} exceeds the configured ₹50L high-value review threshold.`,
       unitDescription: 'Ceiling exceeded',
       baseline: {
         mean: 25000000,
@@ -65,7 +69,7 @@ export function evaluateCostAnomaly(
         state: project.state,
         zThreshold,
         isAnomaly: true,
-        reason: 'Cost exceeds statutory single-project ceiling.'
+        reason: 'Cost exceeds the configured high-value review threshold.'
       }
     };
   }

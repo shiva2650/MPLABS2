@@ -134,10 +134,9 @@ export class ApprovalWorkflowService {
       throw new Error(`Access Denied: Role '${user.role}' is not authorized to transition project to '${targetStatus}'. Required: ${rule.allowedRoles.join(', ')}.`);
     }
 
-    // Amount Ceiling Check: Single work > ₹50 Cr is statutory violation
-    if (sanctionedAmount && sanctionedAmount > 500000000) {
-      throw new Error(`Statutory Allocation Violation: Sanctioned amount (₹${(sanctionedAmount / 10000000).toFixed(2)} Cr) exceeds statutory MPLADS single-work ceiling.`);
-    }
+    // High-value routing is handled by the authority workflow rules above.
+    // Do not hard-code a universal statutory single-work ceiling here; applicable
+    // administrative/state rules must be configured separately for production.
 
     const prevStatus = project.status;
     project.status = targetStatus;
