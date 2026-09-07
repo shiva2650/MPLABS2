@@ -1,0 +1,150 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with role-based attributes and jurisdiction",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["MP", "ADMIN", "AGENCY", "PUBLIC"] },
+        "designation": { "type": "string", "maxLength": 128 },
+        "constituency": { "type": "string", "maxLength": 128 },
+        "state": { "type": "string", "maxLength": 64 },
+        "district": { "type": "string", "maxLength": 64 },
+        "agencyId": { "type": "string", "maxLength": 64 },
+        "agencyName": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["userId", "name", "email", "role"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "MPLADS development project record",
+      "type": "object",
+      "properties": {
+        "workCode": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 2048 },
+        "sector": { "type": "string", "maxLength": 128 },
+        "state": { "type": "string", "maxLength": 64 },
+        "district": { "type": "string", "maxLength": 64 },
+        "constituency": { "type": "string", "maxLength": 128 },
+        "house": { "type": "string", "enum": ["Lok Sabha", "Rajya Sabha"] },
+        "mpId": { "type": "string", "maxLength": 64 },
+        "mpName": { "type": "string", "maxLength": 128 },
+        "financialYear": { "type": "string", "maxLength": 16 },
+        "estimatedCostLakhs": { "type": "number" },
+        "sanctionedCostLakhs": { "type": "number" },
+        "expenditureLakhs": { "type": "number" },
+        "balanceLakhs": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Recommended",
+            "Under Review",
+            "Sanctioned",
+            "Assigned",
+            "Ongoing",
+            "Delayed",
+            "Completed",
+            "Rejected"
+          ]
+        },
+        "progressPercentage": { "type": "number" },
+        "recommendationDate": { "type": "string", "maxLength": 32 },
+        "sanctionDate": { "type": "string", "maxLength": 32 },
+        "implementingAgencyId": { "type": "string", "maxLength": 64 },
+        "vendorId": { "type": "string", "maxLength": 64 },
+        "locationName": { "type": "string", "maxLength": 256 },
+        "riskScore": { "type": "number" },
+        "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] }
+      },
+      "required": ["workCode", "title", "sector", "state", "district", "mpId", "status", "riskScore"]
+    },
+    "AnomalyAlert": {
+      "title": "AnomalyAlert",
+      "description": "AI-detected anomaly or risk alert requiring human review",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string", "maxLength": 64 },
+        "projectTitle": { "type": "string", "maxLength": 256 },
+        "workCode": { "type": "string", "maxLength": 64 },
+        "type": {
+          "type": "string",
+          "enum": [
+            "High Risk",
+            "Cost Anomaly",
+            "Delay Risk",
+            "Possible Duplicate",
+            "Photo Anomaly",
+            "Location Mismatch"
+          ]
+        },
+        "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "reason": { "type": "string", "maxLength": 1024 },
+        "status": {
+          "type": "string",
+          "enum": ["Under Review", "Valid", "False Positive", "Needs More Info", "Escalated"]
+        },
+        "assignedOfficer": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["projectId", "type", "riskLevel", "reason", "status"]
+    },
+    "CitizenFeedback": {
+      "title": "CitizenFeedback",
+      "description": "Citizen public feedback, complaints, and photo reports",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string", "maxLength": 64 },
+        "projectTitle": { "type": "string", "maxLength": 256 },
+        "citizenName": { "type": "string", "maxLength": 128 },
+        "citizenContact": { "type": "string", "maxLength": 64 },
+        "issueType": { "type": "string", "maxLength": 64 },
+        "comments": { "type": "string", "maxLength": 2048 },
+        "photoUrl": { "type": "string", "maxLength": 512 },
+        "status": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["projectId", "citizenName", "issueType", "comments"]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Append-only immutable record of administrative and system changes",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 64 },
+        "userName": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["MP", "ADMIN", "AGENCY", "PUBLIC"] },
+        "action": { "type": "string", "maxLength": 128 },
+        "projectId": { "type": "string", "maxLength": 64 },
+        "details": { "type": "string", "maxLength": 2048 },
+        "previousValue": { "type": "string", "maxLength": 1024 },
+        "newValue": { "type": "string", "maxLength": 1024 },
+        "ipAddress": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "action", "details", "role"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles partitioned with role and district/agency assignments"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "MPLADS development projects"
+    },
+    "/alerts/{alertId}": {
+      "schema": "AnomalyAlert",
+      "description": "AI-detected anomaly and integrity review alerts"
+    },
+    "/feedback/{feedbackId}": {
+      "schema": "CitizenFeedback",
+      "description": "Citizen complaints and public feedback on assets"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLogEntry",
+      "description": "Append-only audit trail logs for transparency and compliance"
+    }
+  }
+}

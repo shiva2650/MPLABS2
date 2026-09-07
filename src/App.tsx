@@ -1,303 +1,410 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext.js';
-import { Project, RiskAlert, DashboardSummary, CitizenFeedback } from './types/index.js';
-import { api } from './services/api.js';
+import React, { useState, useEffect } from 'react';
+import { Project, UserProfile, AnomalyAlert, CitizenFeedback } from './types';
+import { ApiService } from './services/api';
+import { Header } from './components/Header';
+import { PublicDashboard } from './components/PublicDashboard';
+import { ProjectsListView } from './components/ProjectsListView';
+import { GISProjectMap } from './components/GISProjectMap';
+import { MPDashboard } from './components/MPDashboard';
+import { AdminDashboard } from './components/AdminDashboard';
+import { AgencyDashboard } from './components/AgencyDashboard';
+import { AnomalyAlertsCenter } from './components/AnomalyAlertsCenter';
+import { VendorAnalyticsView } from './components/VendorAnalyticsView';
+import { ReportsAndAuditView } from './components/ReportsAndAuditView';
+import { VerificationWorkbench } from './components/VerificationWorkbench';
+import { CitizenFeedbackSection } from './components/CitizenFeedbackSection';
+import { ProjectDetailsModal } from './components/ProjectDetailsModal';
+import { LoginModal } from './components/LoginModal';
+import { Shield, ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react';
 
-import { Navbar } from './components/Navbar.js';
-import { Sidebar } from './components/Sidebar.js';
-import { GISMap } from './components/GISMap.js';
-import { ProjectModal } from './components/ProjectModal.js';
-import { RecommendModal } from './components/RecommendModal.js';
-import { AlertActionModal } from './components/AlertActionModal.js';
+export default function App() {
+  // Navigation & Authentication State
+  const [currentView, setCurrentView] = useState<string>('public');
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
 
-import { LandingPage } from './pages/LandingPage.js';
-import { LoginPage } from './pages/LoginPage.js';
-import { DashboardPage } from './pages/DashboardPage.js';
-import { ProjectsPage } from './pages/ProjectsPage.js';
-import { AiAnomaliesPage } from './pages/AiAnomaliesPage.js';
-import { AlertManagementPage } from './pages/AlertManagementPage.js';
-import { RecommendationsPage } from './pages/RecommendationsPage.js';
-import { FundsLedgerPage } from './pages/FundsLedgerPage.js';
-import { AgencyWorkdeskPage } from './pages/AgencyWorkdeskPage.js';
-import { VendorAnalyticsPage } from './pages/VendorAnalyticsPage.js';
-import { CitizenFeedbackPage } from './pages/CitizenFeedbackPage.js';
-import { ReportsPage } from './pages/ReportsPage.js';
-import { AuditLogPage } from './pages/AuditLogPage.js';
-import { SatelliteVerificationPage } from './pages/SatelliteVerificationPage.js';
-import { ContractorNetworkFraudPage } from './pages/ContractorNetworkFraudPage.js';
-import { DataIngestionImpactPage } from './pages/DataIngestionImpactPage.js';
-import { CitizenChatbotDrawer } from './components/CitizenChatbotDrawer.js';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
-
-const MainAppContent: React.FC = () => {
-  const { user, currentUser, isPublicMode, enterPublicMode, exitPublicMode, loading: authLoading } = useAuth();
-  const effectiveUser = user || currentUser;
-
-  const [unauthenticatedView, setUnauthenticatedView] = useState<'landing' | 'login'>('landing');
-  const [loginPresetRole, setLoginPresetRole] = useState<any>(undefined);
-
-  const [currentTab, setCurrentTab] = useState<string>('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
-
+  // Global Data State
   const [projects, setProjects] = useState<Project[]>([]);
-  const [alerts, setAlerts] = useState<RiskAlert[]>([]);
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [feedbackList, setFeedbackList] = useState<CitizenFeedback[]>([]);
+  const [alerts, setAlerts] = useState<AnomalyAlert[]>([]);
+  const [feedback, setFeedback] = useState<CitizenFeedback[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [selectedProjectInitialTab, setSelectedProjectInitialTab] = useState<any>('overview');
-  const [isRecommendOpen, setIsRecommendOpen] = useState<boolean>(false);
-  const [activeAlertForAction, setActiveAlertForAction] = useState<RiskAlert | null>(null);
-  const [duplicateCandidates, setDuplicateCandidates] = useState<any[]>([]);
 
-  const handleSelectProject = async (p: Project | null, tab?: any) => {
-    if (!p) {
-      setSelectedProject(null);
-      setDuplicateCandidates([]);
-      return;
+  // Load Initial Data
+  useEffect(() => {
+    // Check local session
+    const savedUser = ApiService.getCurrentUser();
+    if (savedUser) {
+      setCurrentUser(savedUser);
     }
-    setSelectedProject(p);
-    setSelectedProjectInitialTab(tab || 'overview');
-    try {
-      const res = await api.getProjectById(p.id);
-      if (res?.duplicateCandidates) {
-        setDuplicateCandidates(res.duplicateCandidates);
-      }
-    } catch {
-      setDuplicateCandidates([]);
-    }
-  };
+    loadAllData();
+  }, []);
 
-  const effectiveRole = isPublicMode ? 'PUBLIC' : effectiveUser?.role || 'PUBLIC';
-
-  const fetchData = useCallback(async () => {
+  const loadAllData = async () => {
+    setLoading(true);
     try {
-      const [projectsRes, alertsRes, summaryRes, feedbackRes] = await Promise.all([
-        api.getProjects(),
-        api.getAlerts().catch(() => ({ alerts: [] })),
-        api.getDashboardSummary().catch(() => null),
-        api.getCitizenFeedback().catch(() => ({ feedback: [] }))
+      const [pData, aData, fData] = await Promise.all([
+        ApiService.getProjects().catch((err) => {
+          console.error('Projects fetch error:', err);
+          return [];
+        }),
+        ApiService.getAlerts().catch((err) => {
+          console.error('Alerts fetch error:', err);
+          return [];
+        }),
+        ApiService.getFeedback().catch((err) => {
+          console.error('Feedback fetch error:', err);
+          return [];
+        }),
       ]);
-      setProjects(projectsRes.projects || []);
-      setAlerts(alertsRes.alerts || []);
-      setSummary(summaryRes || null);
-      setFeedbackList(feedbackRes.feedback || []);
+      setProjects(pData || []);
+      setAlerts(aData || []);
+      setFeedback(fData || []);
     } catch (err) {
-      console.error('Error fetching data:', err);
+      console.error('Failed to load portal data:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-[#F8F9F7] flex items-center justify-center font-sans">
-        <RefreshCw className="w-6 h-6 text-[#395C40] animate-spin" />
-      </div>
-    );
-  }
-
-  if (!effectiveUser && !isPublicMode) {
-    if (unauthenticatedView === 'login') {
-      return (
-        <LoginPage
-          onBackToHome={() => setUnauthenticatedView('landing')}
-          onEnterPublic={enterPublicMode}
-          initialRole={loginPresetRole}
-        />
-      );
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    // Automatically redirect to appropriate dashboard based on role
+    if (user.role === 'MP') {
+      setCurrentView('mp-portal');
+    } else if (user.role === 'ADMIN') {
+      setCurrentView('admin-portal');
+    } else if (user.role === 'AGENCY') {
+      setCurrentView('agency-portal');
+    } else {
+      setCurrentView('public');
     }
-    return (
-      <>
-        <LandingPage
-          summary={summary}
-          projects={projects}
-          onOpenLogin={(role) => {
-            setLoginPresetRole(role);
-            setUnauthenticatedView('login');
-          }}
-          onEnterPublic={enterPublicMode}
-          onSelectProject={(p) => handleSelectProject(p)}
-        />
-        <ProjectModal
-          project={selectedProject}
-          onClose={() => handleSelectProject(null)}
-          userRole="PUBLIC"
-          duplicateCandidates={duplicateCandidates}
-        />
-      </>
-    );
-  }
+  };
 
-  const criticalAlertsCount = alerts.filter(
-    a => (a.status === 'New' || a.status === 'Under Review') && (a.riskLevel === 'HIGH' || a.riskLevel === 'CRITICAL')
-  ).length;
+  const handleLogout = () => {
+    ApiService.logout();
+    setCurrentUser(null);
+    setCurrentView('public');
+  };
 
   return (
-    <div className="min-h-screen bg-[#F8F9F7] flex flex-col font-sans antialiased text-[#1B3022]">
-      <Navbar
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        onOpenRecommend={() => setIsRecommendOpen(true)}
-        criticalAlertsCount={criticalAlertsCount}
-        onNavigateToHome={() => {
-          if (isPublicMode) exitPublicMode();
-          setUnauthenticatedView('landing');
+    <div className="min-h-screen bg-[#F2F5F9] text-[#333] flex flex-col font-sans antialiased selection:bg-[#0A2540] selection:text-white">
+      {/* Official Government Portal Header - Geometric Balance Theme */}
+      <Header
+        currentUser={currentUser}
+        currentView={currentView}
+        onNavigate={(view) => {
+          if (view === 'dashboard') {
+            if (!currentUser) {
+              setIsLoginModalOpen(true);
+            } else if (currentUser.role === 'MP') {
+              setCurrentView('mp-portal');
+            } else if (currentUser.role === 'ADMIN') {
+              setCurrentView('admin-portal');
+            } else if (currentUser.role === 'AGENCY') {
+              setCurrentView('agency-portal');
+            } else {
+              setCurrentView('public');
+            }
+          } else if (view === 'public-portal') {
+            setCurrentView('public');
+          } else if (view === 'projects-list') {
+            setCurrentView('projects');
+          } else if (view === 'citizen-feedback') {
+            setCurrentView('feedback');
+          } else if (view === 'verification-workbench') {
+            setCurrentView('workbench');
+          } else {
+            setCurrentView(view);
+          }
         }}
-        onOpenLogin={() => {
-          if (isPublicMode) exitPublicMode();
-          setUnauthenticatedView('login');
-        }}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
+        alertCount={alerts.length}
       />
 
-      <div className="flex-1 flex max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6 gap-6">
-        <Sidebar
-          currentTab={currentTab}
-          onSelectTab={tab => {
-            setCurrentTab(tab);
-            setSidebarOpen(false);
-          }}
-          pendingAlertsCount={alerts.filter(a => a.status === 'New').length}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          onNavigateToHome={() => {
-            if (isPublicMode) exitPublicMode();
-            setUnauthenticatedView('landing');
-          }}
-        />
-
-        <main className="flex-1 min-w-0">
-          {loading ? (
-            <div className="h-96 flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-[#DDE5D4]">
-              <RefreshCw className="w-8 h-8 text-[#395C40] animate-spin" />
-              <div className="text-xs font-semibold text-[#588157]">Loading verified government records...</div>
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        {loading && projects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-gray-500 space-y-3">
+            <RefreshCw className="w-8 h-8 animate-spin text-[#0A2540]" />
+            <div className="text-sm font-semibold uppercase tracking-wider text-[#0A2540]">
+              Connecting to MPLADS National Monitoring Database...
             </div>
-          ) : (
-            <>
-              {currentTab === 'dashboard' && (
-                <DashboardPage
-                  summary={summary}
+          </div>
+        ) : (
+          <>
+            {/* VIEW 1: PUBLIC DASHBOARD */}
+            {currentView === 'public' && (
+              <PublicDashboard
+                projects={projects}
+                onSelectProject={(p) => setSelectedProject(p)}
+                onNavigate={(v) => setCurrentView(v)}
+                onRefresh={loadAllData}
+              />
+            )}
+
+            {/* VIEW 2: MASTER PROJECTS REPOSITORY */}
+            {currentView === 'projects' && (
+              <ProjectsListView
+                projects={projects}
+                currentUser={currentUser}
+                onSelectProject={(p) => setSelectedProject(p)}
+              />
+            )}
+
+            {/* VIEW 3: GIS GEO MAP */}
+            {currentView === 'gis-map' && (
+              <GISProjectMap
+                projects={projects}
+                onSelectProject={(p) => setSelectedProject(p)}
+              />
+            )}
+
+            {/* VIEW 4: MEMBER OF PARLIAMENT WORKSPACE */}
+            {currentView === 'mp-portal' && (
+              currentUser && currentUser.role === 'MP' ? (
+                <MPDashboard
+                  currentUser={currentUser}
                   projects={projects}
-                  alerts={alerts}
-                  userRole={effectiveRole}
-                  onSelectProject={p => handleSelectProject(p)}
-                  onNavigateToAnomalies={() => setCurrentTab('anomalies')}
-                  onNavigateToRecommend={() => setIsRecommendOpen(true)}
-                  onNavigateToMap={() => setCurrentTab('map')}
+                  onSelectProject={(p) => setSelectedProject(p)}
+                  onRefresh={loadAllData}
                 />
-              )}
-              {currentTab === 'map' && (
-                <div className="space-y-4">
-                  <h1 className="text-xl font-bold text-[#1B3022]">Geographic Information System (GIS) Surveillance</h1>
-                  <GISMap projects={projects} onSelectProject={p => handleSelectProject(p)} />
+              ) : (
+                <div className="bg-white border-t-4 border-[#0A2540] border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
+                  <div className="p-3 bg-orange-50 text-[#F27D26] rounded-full w-12 h-12 flex items-center justify-center mx-auto">
+                    <Shield className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
+                    MP Authentication Required
+                  </h3>
+                  <p className="text-xs text-gray-600 max-w-md mx-auto">
+                    Access to recommend new developmental works under MPLADS Guidelines (2010) is restricted to credentialed Members of Parliament.
+                  </p>
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#081d33] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
+                  >
+                    Login as Member of Parliament
+                  </button>
                 </div>
-              )}
-              {currentTab === 'projects' && (
-                <ProjectsPage
-                  projects={projects}
-                  userRole={effectiveRole}
-                  onSelectProject={p => handleSelectProject(p)}
-                  onNavigateToRecommend={() => setIsRecommendOpen(true)}
-                />
-              )}
-              {currentTab === 'anomalies' && (
-                <AiAnomaliesPage
+              )
+            )}
+
+            {/* VIEW 5: DISTRICT NODAL AUTHORITY WORKSPACE */}
+            {currentView === 'admin-portal' && (
+              currentUser && currentUser.role === 'ADMIN' ? (
+                <AdminDashboard
+                  currentUser={currentUser}
                   projects={projects}
                   alerts={alerts}
-                  onSelectProject={(p, tab) => handleSelectProject(p, tab)}
-                  onOpenAlertAction={a => setActiveAlertForAction(a)}
+                  onSelectProject={(p) => setSelectedProject(p)}
+                  onNavigate={(v) => setCurrentView(v)}
+                  onRefresh={loadAllData}
                 />
-              )}
-              {currentTab === 'alerts' && (
-                <AlertManagementPage
+              ) : (
+                <div className="bg-white border-t-4 border-[#0A2540] border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
+                  <div className="p-3 bg-blue-50 text-[#0A2540] rounded-full w-12 h-12 flex items-center justify-center mx-auto">
+                    <Shield className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
+                    District Authority Access Required
+                  </h3>
+                  <p className="text-xs text-gray-600 max-w-md mx-auto">
+                    Administrative Sanction, technical scrutiny, and Implementing Agency assignment require District Nodal Authority credentials.
+                  </p>
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#081d33] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
+                  >
+                    Login as District Authority (IAS Collector)
+                  </button>
+                </div>
+              )
+            )}
+
+            {/* VIEW 6: IMPLEMENTING AGENCY WORKSPACE */}
+            {currentView === 'agency-portal' && (
+              currentUser && currentUser.role === 'AGENCY' ? (
+                <AgencyDashboard
+                  currentUser={currentUser}
+                  projects={projects}
+                  onSelectProject={(p) => setSelectedProject(p)}
+                  onRefresh={loadAllData}
+                />
+              ) : (
+                <div className="bg-white border-t-4 border-[#F27D26] border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
+                  <div className="p-3 bg-orange-50 text-[#F27D26] rounded-full w-12 h-12 flex items-center justify-center mx-auto">
+                    <Shield className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
+                    Executing Agency Access Required
+                  </h3>
+                  <p className="text-xs text-gray-600 max-w-md mx-auto">
+                    Physical execution progress reporting and geotagged photographic upload require authenticated Executing Agency credentials.
+                  </p>
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="px-5 py-2.5 bg-[#F27D26] hover:bg-[#d96817] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
+                  >
+                    Login as Executing Agency Engineer
+                  </button>
+                </div>
+              )
+            )}
+
+            {/* VIEW 7: AI ANOMALY ALERTS REVIEW CENTER */}
+            {currentView === 'alerts-center' && (
+              currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MP') ? (
+                <AnomalyAlertsCenter
                   alerts={alerts}
-                  projects={projects}
-                  onOpenAlertAction={a => setActiveAlertForAction(a)}
-                  onSelectProject={p => handleSelectProject(p)}
+                  currentUser={currentUser}
+                  onRefresh={loadAllData}
+                  onSelectProjectById={(id) => {
+                    const p = projects.find((item) => item.id === id);
+                    if (p) setSelectedProject(p);
+                  }}
                 />
-              )}
-              {(currentTab === 'recommend' || currentTab === 'recommendations') && (
-                <RecommendationsPage
-                  projects={projects}
-                  userRole={effectiveRole}
-                  onOpenRecommend={() => setIsRecommendOpen(true)}
-                  onSelectProject={p => handleSelectProject(p)}
-                  onRefresh={fetchData}
-                />
-              )}
-              {currentTab === 'funds' && (
-                <FundsLedgerPage projects={projects} userRole={effectiveRole} />
-              )}
-              {(currentTab === 'agency' || currentTab === 'agency-workdesk') && (
-                <AgencyWorkdeskPage
-                  projects={projects}
-                  userRole={effectiveRole}
-                  onSelectProject={p => handleSelectProject(p)}
-                  onRefresh={fetchData}
-                />
-              )}
-              {currentTab === 'vendors' && <VendorAnalyticsPage />}
-              {(currentTab === 'feedback' || currentTab === 'grievances') && (
-                <CitizenFeedbackPage
-                  feedbackList={feedbackList}
-                  projects={projects}
-                  userRole={effectiveRole}
-                  onRefresh={fetchData}
-                  onSelectProject={p => handleSelectProject(p)}
-                />
-              )}
-              {currentTab === 'reports' && <ReportsPage projects={projects} alerts={alerts} userRole={effectiveRole} />}
-              {(currentTab === 'audit-logs' || currentTab === 'audit') && <AuditLogPage />}
-              {currentTab === 'satellite' && <SatelliteVerificationPage projects={projects} onSelectProject={p => handleSelectProject(p)} />}
-              {currentTab === 'network-fraud' && <ContractorNetworkFraudPage />}
-              {currentTab === 'data-ingestion' && <DataIngestionImpactPage />}
-            </>
-          )}
-        </main>
-      </div>
+              ) : (
+                <div className="bg-white border-t-4 border-red-600 border-x border-b border-gray-200 rounded p-10 text-center space-y-4 shadow-sm">
+                  <div className="p-3 bg-red-50 text-red-700 rounded-full w-12 h-12 flex items-center justify-center mx-auto">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-[#0A2540] uppercase tracking-wide">
+                    Authorized Personnel Only
+                  </h3>
+                  <p className="text-xs text-gray-600 max-w-md mx-auto">
+                    To prevent misinterpretation, granular AI anomaly reasoning is restricted to District Administrators and Members of Parliament under Scheme Policy.
+                  </p>
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#081d33] text-white font-bold text-xs uppercase tracking-wider rounded shadow-sm cursor-pointer"
+                  >
+                    Login with Official Credentials
+                  </button>
+                </div>
+              )
+            )}
 
-      <CitizenChatbotDrawer />
+            {/* VIEW 8: VENDOR & AGENCY PERFORMANCE ANALYTICS */}
+            {currentView === 'vendor-analytics' && (
+              <VendorAnalyticsView />
+            )}
 
-      <ProjectModal
-        project={selectedProject}
-        onClose={() => handleSelectProject(null)}
-        onRefresh={fetchData}
-        userRole={effectiveRole}
-        duplicateCandidates={duplicateCandidates}
-        initialTab={selectedProjectInitialTab}
-      />
+            {/* VIEW 9: REPORTS & IMMUTABLE AUDIT TRAIL */}
+            {currentView === 'reports-audit' && (
+              <ReportsAndAuditView
+                currentUser={currentUser || {
+                  id: 'guest',
+                  name: 'Public Viewer',
+                  role: 'PUBLIC',
+                }}
+              />
+            )}
 
-      <RecommendModal
-        isOpen={isRecommendOpen}
-        onClose={() => setIsRecommendOpen(false)}
-        onSuccess={() => { setIsRecommendOpen(false); fetchData(); }}
-      />
+            {/* VIEW 10: CITIZEN GRIEVANCES & FEEDBACK */}
+            {currentView === 'feedback' && (
+              <CitizenFeedbackSection
+                feedbackList={feedback}
+                projects={projects}
+                onRefresh={loadAllData}
+              />
+            )}
 
-      <AlertActionModal
-        alert={activeAlertForAction}
-        isOpen={!!activeAlertForAction}
-        onClose={() => setActiveAlertForAction(null)}
-        onSuccess={() => { setActiveAlertForAction(null); fetchData(); }}
-      />
+            {/* VIEW 11: AI VERIFICATION TEST RUNNER / WORKBENCH */}
+            {currentView === 'workbench' && (
+              <VerificationWorkbench />
+            )}
+          </>
+        )}
+      </main>
 
-      <footer className="bg-white border-t border-[#DDE5D4] mt-auto py-4 px-6 text-xs text-[#588157]">
-        <div className="max-w-7xl mx-auto flex justify-between">
-          <span>MPLADS AI Integrity System • MoSPI Government of India</span>
-          <span>eSAKSHI Overlay Architecture</span>
+      {/* Official Government Footer - Geometric Balance */}
+      <footer className="mt-12 bg-[#0A2540] text-slate-300 border-t-4 border-[#F27D26] text-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="space-y-2">
+              <div className="text-white font-bold text-sm flex items-center gap-2 uppercase tracking-wide">
+                <span>MPLADS AI Integrity System</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                National transparency portal for monitoring Members of Parliament Local Area Development Scheme works, fund utilization, and physical asset verification.
+              </p>
+              <div className="text-[10px] text-[#F27D26] font-semibold uppercase tracking-wider">
+                Aligned with official MPLADS Guidelines (2010).
+              </div>
+            </div>
+
+            <div>
+              <div className="text-white font-bold text-xs uppercase tracking-wider mb-2">
+                Statutory Guidelines
+              </div>
+              <ul className="space-y-1 text-slate-400 text-[11px]">
+                <li>• Annual Entitlement: ₹5.00 Crore / Year</li>
+                <li>• SC Population Quota: Minimum 15%</li>
+                <li>• ST Population Quota: Minimum 7.5%</li>
+                <li>• Permissible Work Limits: Durable Assets</li>
+                <li>• Prohibited Works: Movable items, maintenance</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="text-white font-bold text-xs uppercase tracking-wider mb-2">
+                AI Integrity Framework
+              </div>
+              <ul className="space-y-1 text-slate-400 text-[11px]">
+                <li>• Decision Support Policy for Human Review</li>
+                <li>• EXIF &amp; GPS Haversine Geo-Verification</li>
+                <li>• Perceptual Image Hash Reuse Screening</li>
+                <li>• Statistical Cost Deviation (Z-Score &gt; 2.5σ)</li>
+                <li>• Append-Only Immutable Audit Trail</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="text-white font-bold text-xs uppercase tracking-wider mb-2">
+                Transparency &amp; Contact
+              </div>
+              <div className="space-y-1 text-slate-400 text-[11px]">
+                <div>Ministry of Statistics &amp; Programme Implementation</div>
+                <div>Government of India, New Delhi - 110001</div>
+                <div className="pt-2 text-slate-400">
+                  Data updated daily from District Nodal Authorities and Executing Agencies.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-slate-700/60 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-400">
+            <div>
+              © 2026 Government of India • Ministry of Statistics and Programme Implementation (MoSPI)
+            </div>
+            <div className="flex items-center gap-4 text-[#F27D26]">
+              <span>Security Audited</span>
+              <span className="text-slate-600">•</span>
+              <span>Append-Only Logs</span>
+              <span className="text-slate-600">•</span>
+              <span>Citizen Grievance Redressal</span>
+            </div>
+          </div>
         </div>
       </footer>
-    </div>
-  );
-};
 
-export default function App() {
-  return (
-    <AuthProvider>
-      <MainAppContent />
-    </AuthProvider>
+      {/* Project Details Modal */}
+      {selectedProject && (
+        <ProjectDetailsModal
+          project={selectedProject}
+          currentUser={currentUser}
+          onClose={() => setSelectedProject(null)}
+        />
+      )}
+
+      {/* Authentication Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    </div>
   );
 }

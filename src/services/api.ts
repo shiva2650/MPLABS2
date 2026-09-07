@@ -1,457 +1,315 @@
 import {
   Project,
-  RiskAlert,
+  UserProfile,
+  AnomalyAlert,
   CitizenFeedback,
   AuditLogEntry,
-  User,
-  DashboardSummary,
-  DuplicateProjectCandidate,
-  MLModelMetadata,
-  DataQualityReport,
-  NotificationLog,
-  ProjectStatus
-} from '../types/index.js';
-import { AuthService, authStorage } from './authService.js';
-import { clientMockDb } from './clientMockDb.js';
+  VendorAnalyticsSummary,
+} from '../types';
 
-export { AuthService, authStorage };
+const TOKEN_KEY = 'mplads_auth_token';
+const USER_KEY = 'mplads_auth_user';
 
-const isStaticDeployment = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  return (
-    window.location.hostname.endsWith('github.io') ||
-    window.location.hostname.includes('githubpreview.dev') ||
-    window.location.protocol === 'file:' ||
-    (window as any).__FORCE_STATIC_MOCK__ === true
-  );
-};
-
-async function handleFallbackRoute(url: string, options: RequestInit = {}): Promise<any> {
-  const method = (options.method || 'GET').toUpperCase();
-  const parsedBody = options.body ? JSON.parse(options.body as string) : {};
-  const [path, queryString] = url.split('?');
-  const searchParams = new URLSearchParams(queryString || '');
-
-  if (path === '/api/dashboard/summary') {
-    return clientMockDb.getDashboardSummary();
-  }
-  if (path === '/api/projects') {
-    return clientMockDb.getProjects({
-      status: searchParams.get('status') || undefined,
-      category: searchParams.get('category') || undefined,
-      district: searchParams.get('district') || undefined,
-      riskLevel: searchParams.get('riskLevel') || undefined,
-      search: searchParams.get('search') || undefined
-    });
-  }
-  if (path === '/api/projects/recommend') {
-    return clientMockDb.recommendProject(parsedBody);
-  }
-
-  const transitionMatch = path.match(/^\/api\/projects\/([^/]+)\/transition$/);
-  if (transitionMatch) {
-    return clientMockDb.transitionProject(transitionMatch[1], parsedBody);
-  }
-
-  const statusMatch = path.match(/^\/api\/projects\/([^/]+)\/status$/);
-  if (statusMatch) {
-    return clientMockDb.updateProjectStatus(statusMatch[1], parsedBody);
-  }
-  const assignMatch = path.match(/^\/api\/projects\/([^/]+)\/assign-agency$/);
-  if (assignMatch) {
-    return clientMockDb.assignAgency(assignMatch[1], parsedBody);
-  }
-  const progressMatch = path.match(/^\/api\/projects\/([^/]+)\/progress$/);
-  if (progressMatch) {
-    return clientMockDb.updateProgress(progressMatch[1], parsedBody);
-  }
-  const paymentsMatch = path.match(/^\/api\/projects\/([^/]+)\/payments$/);
-  if (paymentsMatch) {
-    return clientMockDb.addPayment(paymentsMatch[1], parsedBody);
-  }
-
-  // Real Duplicate Candidates returned in project detail
-  const projectDetailMatch = path.match(/^\/api\/projects\/([^/]+)$/);
-  if (projectDetailMatch) {
-    return clientMockDb.getProjectWithDuplicates(projectDetailMatch[1]);
-  }
-
-  if (path === '/api/alerts') {
-    return clientMockDb.getAlerts({
-      status: searchParams.get('status') || undefined,
-      riskLevel: searchParams.get('riskLevel') || undefined
-    });
-  }
-  const alertActionMatch = path.match(/^\/api\/alerts\/([^/]+)\/action$/);
-  if (alertActionMatch) {
-    return clientMockDb.actionAlert(alertActionMatch[1], parsedBody);
-  }
-
-  if (path === '/api/ml/model-status') {
-    return clientMockDb.getMLModelStatus();
-  }
-  if (path === '/api/ml/retrain') {
-    return clientMockDb.retrainMLModel();
-  }
-
-  if (path === '/api/citizen-feedback') {
-    if (method === 'POST') {
-      return clientMockDb.submitCitizenFeedback(parsedBody);
+export class ApiService {
+  private static getHeaders(): HeadersInit {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
-    return clientMockDb.getCitizenFeedback();
-  }
-  const feedbackStatusMatch = path.match(/^\/api\/citizen-feedback\/([^/]+)\/status$/);
-  if (feedbackStatusMatch) {
-    return clientMockDb.updateFeedbackStatus(feedbackStatusMatch[1], parsedBody.status, parsedBody.adminNotes);
+    return headers;
   }
 
-  if (path === '/api/data/quality-reports') {
-    return clientMockDb.getDataQualityReports();
-  }
-  if (path === '/api/data/sync') {
-    return clientMockDb.syncGovernmentData();
-  }
-  if (path === '/api/data/ingest') {
-    return clientMockDb.ingestCsvData(parsedBody.csvContent, parsedBody.sourceLabel);
-  }
-  if (path === '/api/impact/summary') {
-    return clientMockDb.getImpactSummary();
-  }
-
-  if (path === '/api/notifications') {
-    return clientMockDb.getNotifications();
-  }
-  if (path === '/api/notifications/test') {
-    return clientMockDb.dispatchTestNotification();
-  }
-
-  if (path === '/api/audit-logs/verify') {
-    return clientMockDb.verifyAuditLogs();
-  }
-  if (path === '/api/audit-logs') {
-    const logsData = await clientMockDb.getAuditLogs();
-    return { auditLogs: logsData.logs, count: logsData.count };
-  }
-
-  if (path === '/api/network/contractors') {
-    return clientMockDb.getContractorNetwork();
-  }
-
-  const satMatch = path.match(/^\/api\/satellite\/([^/]+)$/);
-  if (satMatch) {
-    return clientMockDb.getSatelliteObservation(satMatch[1]);
-  }
-  const satVerifyMatch = path.match(/^\/api\/satellite\/verify\/([^/]+)$/);
-  if (satVerifyMatch) {
-    return clientMockDb.getSatelliteObservation(satVerifyMatch[1]);
-  }
-
-  const aiReportMatch = path.match(/^\/api\/ai\/audit-report\/([^/]+)$/);
-  if (aiReportMatch) {
-    return clientMockDb.generateAiAuditReport(aiReportMatch[1]);
-  }
-
-  if (path === '/api/public/summary') {
-    return clientMockDb.getPublicSummary();
-  }
-  if (path === '/api/public/projects') {
-    return clientMockDb.getPublicProjects();
-  }
-
-  throw new Error(`Endpoint ${url} not found`);
-}
-
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  if (isStaticDeployment()) {
-    return handleFallbackRoute(url, options);
-  }
-  const token = authStorage.getToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {})
-  };
-  if (token && !url.includes('/api/auth/login')) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  try {
-    const response = await fetch(url, { ...options, headers });
-    if (!response.ok) {
-      if (response.status === 404 || response.status === 502 || response.status === 503) {
-        return await handleFallbackRoute(url, options);
-      }
-      if (response.status === 401 && !url.includes('/api/auth/login')) {
-        authStorage.removeToken();
-      }
-      const errorData = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
-    }
-    return response.json();
-  } catch {
+  // Auth Methods
+  static getCurrentUser(): UserProfile | null {
     try {
-      return await handleFallbackRoute(url, options);
-    } catch (err: any) {
-      throw err;
+      const stored = localStorage.getItem(USER_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
     }
   }
-}
 
-export const api = {
-  login: AuthService.login,
-  getMe: AuthService.getMe,
-  logout: AuthService.logout,
+  static async login(userId: string, password: string): Promise<UserProfile> {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, password }),
+    });
 
-  getDashboardSummary: async (): Promise<DashboardSummary> => {
-    return fetchWithAuth('/api/dashboard/summary');
-  },
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Login failed' }));
+      throw new Error(err.error || 'Invalid credentials');
+    }
 
-  getProjects: async (filters?: {
-    status?: string;
-    category?: string;
-    district?: string;
-    riskLevel?: string;
-    search?: string;
-  }): Promise<{ projects: Project[]; count: number }> => {
+    const data = await res.json();
+    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    return data.user;
+  }
+
+  static async logout(): Promise<void> {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: this.getHeaders(),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
+
+  // Public portal stats
+  static async getPublicSummaryStats(): Promise<{
+    allocatedLimitLakhs: number;
+    worksRecommended: number;
+    worksSanctioned: number;
+    worksCompleted: number;
+    worksOngoing: number;
+    totalSanctionedCostLakhs: number;
+    totalExpenditureLakhs: number;
+    utilizationRatePercent: number;
+  }> {
+    const res = await fetch('/api/public/summary-stats');
+    if (!res.ok) throw new Error('Failed to fetch summary stats');
+    return res.json();
+  }
+
+  static async getMPSummary(house?: string, state?: string, search?: string): Promise<any[]> {
     const params = new URLSearchParams();
-    if (filters?.status && filters.status !== 'All') params.set('status', filters.status);
-    if (filters?.category && filters.category !== 'All') params.set('category', filters.category);
-    if (filters?.district && filters.district !== 'All') params.set('district', filters.district);
-    if (filters?.riskLevel && filters.riskLevel !== 'All') params.set('riskLevel', filters.riskLevel);
-    if (filters?.search) params.set('search', filters.search);
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return fetchWithAuth(`/api/projects${query}`);
-  },
+    if (house) params.append('house', house);
+    if (state) params.append('state', state);
+    if (search) params.append('search', search);
 
-  // Returns project AND real duplicate candidates across MPs/constituencies
-  getProjectById: async (id: string): Promise<{ project: Project; duplicateCandidates: DuplicateProjectCandidate[] }> => {
-    return fetchWithAuth(`/api/projects/${id}`);
-  },
+    const res = await fetch(`/api/public/mp-summary?${params.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch MP summary');
+    const json = await res.json();
+    return json.data || [];
+  }
 
-  recommendProject: async (projectData: Partial<Project>): Promise<{ success: boolean; project: Project }> => {
-    return fetchWithAuth('/api/projects/recommend', {
-      method: 'POST',
-      body: JSON.stringify(projectData)
-    });
-  },
-
-  // Multi-Authority Approval Transition
-  transitionProject: async (
-    id: string,
-    data: {
-      targetStatus: ProjectStatus;
-      sanctionedAmount?: number;
-      statutoryRemarks?: string;
-      dtecClearanceRef?: string;
+  // Projects
+  static async getProjects(filters: Record<string, string> = {}): Promise<Project[]> {
+    const params = new URLSearchParams();
+    for (const [key, val] of Object.entries(filters)) {
+      if (val && val !== 'ALL') params.append(key, val);
     }
-  ): Promise<{ success: boolean; project: Project; record: any; message: string }> => {
-    return fetchWithAuth(`/api/projects/${id}/transition`, {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
 
-  updateProjectStatus: async (
+    const res = await fetch(`/api/projects?${params.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch projects');
+    const json = await res.json();
+    return json.projects || [];
+  }
+
+  static async getProjectById(id: string): Promise<Project> {
+    const res = await fetch(`/api/projects/${id}`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch project details');
+    const json = await res.json();
+    return json.project;
+  }
+
+  static async recommendWork(payload: Partial<Project>): Promise<Project> {
+    const res = await fetch('/api/projects/recommend', {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to recommend work' }));
+      throw new Error(err.error);
+    }
+    const json = await res.json();
+    return json.project;
+  }
+
+  static async sanctionProject(
     id: string,
-    status: string,
-    sanctionedAmount?: number,
+    action: 'APPROVE' | 'REJECT',
+    sanctionedCostLakhs?: number,
     remarks?: string
-  ): Promise<{ success: boolean; project: Project }> => {
-    return fetchWithAuth(`/api/projects/${id}/status`, {
+  ): Promise<Project> {
+    const res = await fetch(`/api/projects/${id}/sanction`, {
       method: 'POST',
-      body: JSON.stringify({ status, sanctionedAmount, remarks })
+      headers: this.getHeaders(),
+      body: JSON.stringify({ action, sanctionedCostLakhs, remarks }),
     });
-  },
-
-  assignAgency: async (
-    id: string,
-    data: {
-      agencyId: string;
-      agencyName: string;
-      vendorName?: string;
-      startDate?: string;
-      expectedCompletionDate?: string;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Action failed' }));
+      throw new Error(err.error);
     }
-  ): Promise<{ success: boolean; project: Project }> => {
-    return fetchWithAuth(`/api/projects/${id}/assign-agency`, {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
+    const json = await res.json();
+    return json.project;
+  }
 
-  updateProgress: async (
+  static async assignAgency(
     id: string,
-    data: {
-      completionPercentage?: number;
-      fundsUtilized?: number;
-      remarks?: string;
-      photoUrl?: string;
-      photoStage?: string;
-      photoCaption?: string;
-      photoLat?: number;
-      photoLon?: number;
+    agencyId: string,
+    agencyName: string,
+    vendorName?: string
+  ): Promise<Project> {
+    const res = await fetch(`/api/projects/${id}/assign-agency`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ agencyId, agencyName, vendorName }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Agency assignment failed' }));
+      throw new Error(err.error);
     }
-  ): Promise<{ success: boolean; project: Project }> => {
-    return fetchWithAuth(`/api/projects/${id}/progress`, {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
+    const json = await res.json();
+    return json.project;
+  }
 
-  addPayment: async (
+  static async updateProgress(
     id: string,
-    data: { amount: number; sanctionOrderNo?: string; remarks?: string }
-  ): Promise<{ success: boolean; payment: any; project: Project }> => {
-    return fetchWithAuth(`/api/projects/${id}/payments`, {
+    progressPercentage: number,
+    stageNotes?: string,
+    expenditureAdditionLakhs?: number
+  ): Promise<Project> {
+    const res = await fetch(`/api/projects/${id}/progress`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      headers: this.getHeaders(),
+      body: JSON.stringify({ progressPercentage, stageNotes, expenditureAdditionLakhs }),
     });
-  },
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to update progress' }));
+      throw new Error(err.error);
+    }
+    const json = await res.json();
+    return json.project;
+  }
 
-  getAlerts: async (): Promise<{ alerts: RiskAlert[]; count: number }> => {
-    return fetchWithAuth('/api/alerts');
-  },
+  static async uploadPhoto(
+    projectId: string,
+    file: File,
+    caption: string,
+    stage: string,
+    simulationOverride?: string
+  ): Promise<any> {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const formData = new FormData();
+    formData.append('photo', file);
+    formData.append('caption', caption);
+    formData.append('stage', stage);
+    if (simulationOverride) {
+      formData.append('simulationOverride', simulationOverride);
+    }
 
-  // Alert Review Action - feeds back into ML Model
-  updateAlertStatus: async (
-    id: string,
-    status: string,
-    reviewNotes?: string
-  ): Promise<{ success: boolean; alert: RiskAlert; mlModelStatus?: MLModelMetadata; message: string }> => {
-    return fetchWithAuth(`/api/alerts/${id}/action`, {
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`/api/projects/${projectId}/upload-photo`, {
       method: 'POST',
-      body: JSON.stringify({ status, reviewNotes })
+      headers,
+      body: formData,
     });
-  },
 
-  // Machine Learning Model
-  getMLModelStatus: async (): Promise<{ metadata: MLModelMetadata; feedbackCount: number; recentFeedback: any[] }> => {
-    return fetchWithAuth('/api/ml/model-status');
-  },
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Photo upload failed' }));
+      throw new Error(err.error);
+    }
 
-  retrainMLModel: async (): Promise<{ success: boolean; metadata: MLModelMetadata; message: string }> => {
-    return fetchWithAuth('/api/ml/retrain', { method: 'POST' });
-  },
+    return res.json();
+  }
+
+  // Alerts & Review
+  static async getAlerts(filters: Record<string, string> = {}): Promise<AnomalyAlert[]> {
+    try {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) {
+        if (v && v !== 'ALL') params.append(k, v);
+      }
+
+      const res = await fetch(`/api/alerts?${params.toString()}`, {
+        headers: this.getHeaders(),
+      });
+      if (!res.ok) {
+        console.warn(`Alerts endpoint returned status ${res.status}`);
+        return [];
+      }
+      const json = await res.json();
+      return json.alerts || [];
+    } catch (err) {
+      console.warn('Failed to fetch alerts, returning fallback:', err);
+      return [];
+    }
+  }
+
+  static async reviewAlert(
+    alertId: string,
+    newStatus: string,
+    remarks: string,
+    assignedOfficer?: string
+  ): Promise<AnomalyAlert> {
+    const res = await fetch(`/api/alerts/${alertId}/review`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ newStatus, remarks, assignedOfficer }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Alert review action failed' }));
+      throw new Error(err.error);
+    }
+    const json = await res.json();
+    return json.alert;
+  }
 
   // Citizen Feedback
-  getCitizenFeedback: async (): Promise<{ feedback: CitizenFeedback[]; count: number }> => {
-    return fetchWithAuth('/api/citizen-feedback');
-  },
-
-  submitCitizenFeedback: async (data: any): Promise<{ success: boolean; feedbackId: string; trackingNumber: string; routedQueue: string; slaDeadlineDays: number }> => {
-    return fetchWithAuth('/api/citizen-feedback', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  updateFeedbackStatus: async (id: string, status: string, adminNotes?: string): Promise<{ success: boolean }> => {
-    return fetchWithAuth(`/api/citizen-feedback/${id}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ status, adminNotes })
-    });
-  },
-
-  // Data Quality Reports & Connector
-  getDataQualityReports: async (): Promise<{ reports: DataQualityReport[]; count: number }> => {
-    return fetchWithAuth('/api/data/quality-reports');
-  },
-
-  syncGovernmentData: async (): Promise<{ success: boolean; syncResult: any; message: string }> => {
-    return fetchWithAuth('/api/data/sync', { method: 'POST' });
-  },
-
-  ingestData: async (csvContent: string, sourceLabel?: string): Promise<{ success: boolean; qualityReport: DataQualityReport; importedCount: number }> => {
-    return fetchWithAuth('/api/data/ingest', {
-      method: 'POST',
-      body: JSON.stringify({ csvContent, sourceLabel })
-    });
-  },
-
-  getImpactSummary: async (): Promise<any> => {
-    return fetchWithAuth('/api/impact/summary');
-  },
-
-  // Notifications
-  getNotifications: async (): Promise<{ notifications: NotificationLog[]; count: number }> => {
-    return fetchWithAuth('/api/notifications');
-  },
-
-  dispatchTestNotification: async (): Promise<{ success: boolean; logs: NotificationLog[]; message: string }> => {
-    return fetchWithAuth('/api/notifications/test', { method: 'POST' });
-  },
-
-  getVendors: async (): Promise<{ vendors: any[] }> => {
-    return fetchWithAuth('/api/analytics/vendors');
-  },
-
-  getContractorNetwork: async (): Promise<any> => {
-    return fetchWithAuth('/api/network/contractors');
-  },
-
-  getAuditLogs: async (): Promise<{ auditLogs: AuditLogEntry[]; count: number }> => {
-    return fetchWithAuth('/api/audit-logs');
-  },
-
-  verifyAuditLogsIntegrity: async (): Promise<{
-    isValid: boolean;
-    verifiedCount: number;
-    brokenAtId?: string;
-    algorithm: string;
-    genesisHash: string;
-    verifiedAt: string;
-  }> => {
-    return fetchWithAuth('/api/audit-logs/verify');
-  },
-
-  simulateTamper: async (): Promise<any> => {
-    return fetchWithAuth('/api/audit-logs/simulate-tamper', { method: 'POST' });
-  },
-
-  restoreAuditLogs: async (): Promise<any> => {
-    return fetchWithAuth('/api/audit-logs/restore', { method: 'POST' });
-  },
-
-  verifyEvidence: async (data: any): Promise<any> => {
-    return fetchWithAuth('/api/evidence/verify', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  generateAiAuditReport: async (projectId: string): Promise<{ report: string; projectCode: string; title: string }> => {
-    return fetchWithAuth(`/api/ai/audit-report/${projectId}`, { method: 'POST' });
-  },
-
-  getSatelliteObservation: async (projectId: string): Promise<{ observation: any }> => {
-    return fetchWithAuth(`/api/satellite/${projectId}`);
-  },
-
-  verifySatellite: async (projectId: string, options?: any): Promise<{ success: boolean; observation: any }> => {
-    return fetchWithAuth(`/api/satellite/verify/${projectId}`, {
-      method: 'POST',
-      body: JSON.stringify(options || {})
-    });
-  },
-
-  queryChatbot: async (query: string): Promise<any> => {
-    return fetchWithAuth('/api/chat/query', {
-      method: 'POST',
-      body: JSON.stringify({ query })
-    });
-  },
-
-  analyzeGrievanceFeedback: async (data: any): Promise<any> => {
-    return fetchWithAuth('/api/nlp/analyze-feedback', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  getPublicSummary: async (): Promise<any> => {
-    return fetchWithAuth('/api/public/summary');
-  },
-
-  getPublicProjects: async (): Promise<{ projects: Project[]; count: number }> => {
-    return fetchWithAuth('/api/public/projects');
+  static async getFeedback(projectId?: string): Promise<CitizenFeedback[]> {
+    const url = projectId ? `/api/feedback?projectId=${projectId}` : '/api/feedback';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch feedback');
+    const json = await res.json();
+    return json.feedback || [];
   }
-};
+
+  static async submitFeedback(payload: Partial<CitizenFeedback>): Promise<CitizenFeedback> {
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Submission failed' }));
+      throw new Error(err.error);
+    }
+    const json = await res.json();
+    return json.feedback;
+  }
+
+  // Vendors
+  static async getVendorAnalytics(): Promise<VendorAnalyticsSummary[]> {
+    const res = await fetch('/api/vendors/analytics', {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch vendor analytics');
+    const json = await res.json();
+    return json.vendors || [];
+  }
+
+  // Audit logs
+  static async getAuditLogs(): Promise<AuditLogEntry[]> {
+    const res = await fetch('/api/audit-logs', {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch audit logs');
+    const json = await res.json();
+    return json.logs || [];
+  }
+
+  // Automated Test Suite runner
+  static async runVerificationTests(): Promise<any> {
+    const res = await fetch('/api/test-verification');
+    if (!res.ok) throw new Error('Failed to run verification tests');
+    return res.json();
+  }
+}

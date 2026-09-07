@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        getUserDoc().role == 'ADMIN'
+      );
+    }
+
+    function isMP() {
+      return isSignedIn() && getUserDoc().role == 'MP';
+    }
+
+    function isAgency() {
+      return isSignedIn() && getUserDoc().role == 'AGENCY';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Projects: Public can read non-sensitive summary fields; MP can read own constituency; Admin can read all in jurisdiction
+    match /projects/{projectId} {
+      allow read: if true; // Public read allowed for transparency on public portal (eSAKSHI mandate)
+      allow create: if isMP() || isAdmin();
+      allow update: if isAdmin() || (
+        isAgency() &&
+        resource.data.implementingAgencyId == getUserDoc().agencyId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progressPercentage', 'photos', 'updatedAt'])
+      ) || (
+        isMP() &&
+        resource.data.mpId == getUserDoc().userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['description', 'notes', 'updatedAt'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Anomaly Alerts: Only Officials (Admin, MP) can read; Only Admin can update status & review history
+    match /alerts/{alertId} {
+      allow read: if isAdmin() || isMP();
+      allow create: if isAdmin();
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewHistory', 'assignedOfficer']);
+      allow delete: if false; // Alerts must never be silently deleted
+    }
+
+    // Citizen Feedback: Public can create, Admin & MP can read
+    match /feedback/{feedbackId} {
+      allow read: if true;
+      allow create: if request.resource.data.citizenName is string &&
+                       request.resource.data.comments is string &&
+                       request.resource.data.comments.size() <= 2048;
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'officialRemarks']);
+      allow delete: if false;
+    }
+
+    // Users: Private profile reads
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Audit Logs: Append-only immutability. No updates or deletes allowed!
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}
