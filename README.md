@@ -1,20 +1,38 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# MPLADS AI Integrity & Monitoring System
 
-# Run and deploy your AI Studio app
+## GitHub Pages quick deployment
 
-This contains everything you need to run your app locally.
+This repository is configured so that pushing `main`/`master` deploys the React application to GitHub Pages without requiring a running Express server.
 
-View your app in AI Studio: https://ai.studio/apps/4cbe3705-271f-4fd6-b378-ef7d6edf7cce
+### Important
 
-## Run Locally
+GitHub Pages is a static host. The GitHub Pages build therefore uses **static demo mode** for authentication and application data. This is suitable for demonstration/evaluation only. It is **not a secure production authentication system** and must not be used for confidential MPLADS data.
 
-**Prerequisites:**  Node.js
+### Demo login
 
+- Administrator: `ADMIN001` / `Admin@123`
+- MP: `MP001` / `MP@123`
+- Agency: `AGENCY001` / `Agency@123`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Local development
+
+```bash
+npm install
+npm run dev
+```
+
+The local full-stack development server is still available through `server.ts`.
+
+### GitHub Pages
+
+The workflow sets:
+
+```text
+VITE_STATIC_MODE=true
+```
+
+The frontend automatically detects `github.io` hosts and uses the browser-side demo store instead of calling `/api/*`.
+
+### Production architecture
+
+For a secure production deployment, run the backend separately and set `VITE_API_BASE_URL` to the backend HTTPS origin. Do not enable static demo mode for private/production data.

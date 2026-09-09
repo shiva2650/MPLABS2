@@ -1,18 +1,20 @@
 {
-  "name": "react-example",
+  "name": "mplads-ai-integrity-monitoring-system",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server-dist/server.cjs",
     "build:client": "vite build",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist",
-    "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
+    "predeploy": "npm run build:client",
+    "deploy": "npm run build:github-pages && gh-pages -d dist",
+    "start": "node server-dist/server.cjs",
+    "clean": "rm -rf dist server-dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/run_all_tests.ts"
+    "test": "tsx tests/run_all_tests.ts",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server-dist/server.cjs",
+    "build:github-pages": "VITE_STATIC_MODE=true vite build"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

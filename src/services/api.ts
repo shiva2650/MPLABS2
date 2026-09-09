@@ -8,40 +8,12 @@ import {
   AppNotification
 } from '../types/index.js';
 import { AuthService, authStorage } from './authService.js';
+import { apiUrl, isStaticDeployment } from './apiConfig.js';
 import { clientMockDb } from './clientMockDb.js';
 
 export { AuthService, authStorage };
 
-async function handleNodeTestFallback(url: string, options: RequestInit = {}): Promise<any> {
-  const [path, queryString] = url.split('?');
-  const searchParams = new URLSearchParams(queryString || '');
-  if (path === '/api/dashboard/summary') return clientMockDb.getDashboardSummary();
-  if (path === '/api/projects') {
-    return clientMockDb.getProjects({
-      status: searchParams.get('status') || undefined,
-      category: searchParams.get('category') || undefined,
-      district: searchParams.get('district') || undefined,
-      riskLevel: searchParams.get('riskLevel') || undefined,
-      search: searchParams.get('search') || undefined
-    });
-  }
-  if (path === '/api/alerts') {
-    return clientMockDb.getAlerts({
-      status: searchParams.get('status') || undefined,
-      riskLevel: searchParams.get('riskLevel') || undefined
-    });
-  }
-  if (path === '/api/citizen-feedback') return clientMockDb.getCitizenFeedback();
-  if (path === '/api/notifications') return clientMockDb.getNotifications();
-  return { success: true };
-}
-
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  // In Node.js test runner where window is undefined and fetch does not have a relative origin
-  if (typeof window === 'undefined') {
-    return handleNodeTestFallback(url, options);
-  }
-
   const token = authStorage.getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -52,7 +24,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(apiUrl(url), { ...options, headers });
   if (!response.ok) {
     if ((response.status === 401 || response.status === 403) && !url.includes('/api/auth/login')) {
       authStorage.removeToken();
@@ -74,6 +46,7 @@ export const api = {
 
   // Dashboard
   getDashboardSummary: async (): Promise<DashboardSummary> => {
+    if (isStaticDeployment()) return clientMockDb.getDashboardSummary();
     try {
       const summary = await fetchWithAuth('/api/dashboard/summary');
       if (summary && typeof summary === 'object' && 'totalProjects' in summary) {
@@ -110,6 +83,7 @@ export const api = {
     riskLevel?: string;
     search?: string;
   }): Promise<{ projects: Project[]; count: number }> => {
+    if (isStaticDeployment()) return clientMockDb.getProjects(filters || {});
     const params = new URLSearchParams();
     if (filters?.status && filters.status !== 'All') params.set('status', filters.status);
     if (filters?.category && filters.category !== 'All') params.set('category', filters.category);
@@ -122,10 +96,18 @@ export const api = {
   },
 
   getProjectById: async (id: string): Promise<{ project: Project; duplicateCandidates?: any[] }> => {
+    if (isStaticDeployment()) {
+      const project = await clientMockDb.getProjectById(id);
+      return { project, duplicateCandidates: [] };
+    }
     return fetchWithAuth(`/api/projects/${id}`);
   },
 
   recommendProject: async (projectData: Partial<Project>): Promise<{ success: boolean; project: Project }> => {
+    if (isStaticDeployment()) {
+      const res = await clientMockDb.recommendProject(projectData as any);
+      return { success: true, project: res.project };
+    }
     return fetchWithAuth('/api/projects/recommend', {
       method: 'POST',
       body: JSON.stringify(projectData)
@@ -138,6 +120,10 @@ export const api = {
     sanctionedAmount?: number,
     remarks?: string
   ): Promise<{ success: boolean; project: Project }> => {
+    if (isStaticDeployment()) {
+      const res = await clientMockDb.updateProjectStatus(id, { status: status as any, sanctionedAmount, remarks });
+      return { success: true, project: res.project };
+    }
     return fetchWithAuth(`/api/projects/${id}/status`, {
       method: 'POST',
       body: JSON.stringify({ status, sanctionedAmount, remarks })
@@ -154,6 +140,14 @@ export const api = {
       expectedCompletionDate?: string;
     }
   ): Promise<{ success: boolean; project: Project }> => {
+    if (isStaticDeployment()) {
+      const res = await clientMockDb.assignAgency(id, {
+        agencyId: data.agencyId,
+        agencyName: data.agencyName,
+        expectedCompletionDate: data.expectedCompletionDate || ''
+      });
+      return { success: true, project: res.project };
+    }
     return fetchWithAuth(`/api/projects/${id}/assign-agency`, {
       method: 'POST',
       body: JSON.stringify(data)
@@ -173,6 +167,15 @@ export const api = {
       photoLon?: number;
     }
   ): Promise<{ success: boolean; project: Project }> => {
+    if (isStaticDeployment()) {
+      const res = await clientMockDb.updateProgress(id, {
+        completionPercentage: Number(data.completionPercentage ?? 0),
+        photoUrl: data.photoUrl,
+        caption: data.photoCaption,
+        stage: (data.photoStage as any) || 'during'
+      });
+      return { success: true, project: res.project };
+    }
     return fetchWithAuth(`/api/projects/${id}/progress`, {
       method: 'POST',
       body: JSON.stringify(data)
@@ -183,6 +186,16 @@ export const api = {
     id: string,
     data: { amount: number; sanctionOrderNo?: string; remarks?: string }
   ): Promise<{ success: boolean; payment: any; project: Project }> => {
+    if (isStaticDeployment()) {
+      const current = await clientMockDb.getProjectById(id);
+      const installmentNo = Number((current.payments?.length || 0) + 1);
+      const res = await clientMockDb.addPayment(id, {
+        installmentNo,
+        amount: Number(data.amount || 0),
+        sanctionOrderNo: data.sanctionOrderNo || 'STATIC-DEMO'
+      });
+      return { success: true, payment: res.project.payments[res.project.payments.length - 1], project: res.project };
+    }
     return fetchWithAuth(`/api/projects/${id}/payments`, {
       method: 'POST',
       body: JSON.stringify(data)
@@ -191,6 +204,7 @@ export const api = {
 
   // Alerts
   getAlerts: async (params?: { status?: string; riskLevel?: string }): Promise<{ alerts: RiskAlert[]; count: number }> => {
+    if (isStaticDeployment()) return clientMockDb.getAlerts(params || {});
     try {
       const searchParams = new URLSearchParams();
       if (params?.status && params.status !== 'All') searchParams.set('status', params.status);
@@ -213,6 +227,10 @@ export const api = {
     status: string,
     reviewNotes?: string
   ): Promise<{ success: boolean; alert: RiskAlert }> => {
+    if (isStaticDeployment()) {
+      const res = await clientMockDb.actionAlert(id, { action: status, notes: reviewNotes });
+      return { success: true, alert: res.alert };
+    }
     return fetchWithAuth(`/api/alerts/${id}/action`, {
       method: 'POST',
       body: JSON.stringify({ status, reviewNotes })
@@ -221,6 +239,7 @@ export const api = {
 
   // Notifications
   getNotifications: async (): Promise<{ notifications: AppNotification[]; count: number; unreadCount?: number }> => {
+    if (isStaticDeployment()) return clientMockDb.getNotifications();
     try {
       const res = await fetchWithAuth('/api/notifications');
       if (res && Array.isArray(res.notifications)) {
@@ -234,6 +253,7 @@ export const api = {
   },
 
   markAsRead: async (id: string): Promise<{ success: boolean; message?: string }> => {
+    if (isStaticDeployment()) return clientMockDb.markAsRead(id);
     return fetchWithAuth(`/api/notifications/${id}/read`, { method: 'POST' });
   },
 
@@ -242,20 +262,37 @@ export const api = {
   },
 
   markAllNotificationsRead: async (): Promise<{ success: boolean; count?: number }> => {
+    if (isStaticDeployment()) return clientMockDb.markAllNotificationsRead();
     return fetchWithAuth('/api/notifications/read-all', { method: 'POST' });
   },
 
   resetNotifications: async (): Promise<{ success: boolean; notifications: AppNotification[]; count?: number; unreadCount?: number }> => {
+    if (isStaticDeployment()) return clientMockDb.resetNotifications();
     return fetchWithAuth('/api/notifications/reset', { method: 'POST' });
   },
 
   // Vendors
   getVendors: async (): Promise<{ vendors: any[] }> => {
+    if (isStaticDeployment()) {
+      const projects = (await clientMockDb.getProjects()).projects;
+      const map = new Map<string, any>();
+      projects.forEach(p => {
+        const name = p.vendorName || 'Unassigned';
+        const existing = map.get(name) || { vendorName: name, projectCount: 0, totalValue: 0, delayedCount: 0, highRiskCount: 0 };
+        existing.projectCount += 1;
+        existing.totalValue += Number(p.sanctionedAmount || 0);
+        if (p.status === 'Delayed') existing.delayedCount += 1;
+        if ((p.riskAnalysis?.overallScore || 0) > 60) existing.highRiskCount += 1;
+        map.set(name, existing);
+      });
+      return { vendors: Array.from(map.values()) };
+    }
     return fetchWithAuth('/api/analytics/vendors');
   },
 
   // Citizen Feedback
   getCitizenFeedback: async (): Promise<{ feedback: CitizenFeedback[]; count: number }> => {
+    if (isStaticDeployment()) return clientMockDb.getCitizenFeedback();
     try {
       const res = await fetchWithAuth('/api/citizen-feedback');
       if (res && Array.isArray(res.feedback)) {
@@ -269,6 +306,10 @@ export const api = {
   },
 
   submitCitizenFeedback: async (data: any): Promise<{ success: boolean; feedbackId: string }> => {
+    if (isStaticDeployment()) {
+      const res = await clientMockDb.submitCitizenFeedback(data);
+      return { success: true, feedbackId: res.feedback.id };
+    }
     return fetchWithAuth('/api/citizen-feedback', {
       method: 'POST',
       body: JSON.stringify(data)
@@ -276,6 +317,7 @@ export const api = {
   },
 
   updateFeedbackStatus: async (id: string, status: string, adminNotes?: string): Promise<{ success: boolean }> => {
+    if (isStaticDeployment()) { await clientMockDb.updateFeedbackStatus(id, status as any, adminNotes); return { success: true }; }
     return fetchWithAuth(`/api/citizen-feedback/${id}/status`, {
       method: 'POST',
       body: JSON.stringify({ status, adminNotes })
@@ -284,6 +326,7 @@ export const api = {
 
   // Audit Logs
   getAuditLogs: async (): Promise<{ auditLogs: AuditLogEntry[]; count: number }> => {
+    if (isStaticDeployment()) { const res = await clientMockDb.getAuditLogs(); return { auditLogs: res.logs, count: res.count }; }
     return fetchWithAuth('/api/audit-logs');
   },
 
@@ -295,16 +338,24 @@ export const api = {
     genesisHash: string;
     verifiedAt: string;
   }> => {
+    if (isStaticDeployment()) {
+      const res = await clientMockDb.getAuditLogs();
+      return { isValid: true, verifiedCount: res.logs.length, algorithm: 'SHA-256 chain', genesisHash: 'GENESIS_MPLADS_AUDIT_BLOCK_000000', verifiedAt: new Date().toISOString() };
+    }
     return fetchWithAuth('/api/audit-logs/verify');
   },
 
   simulateTamper: async (): Promise<{ success: boolean; result: any; message: string }> => {
+    if (isStaticDeployment()) {
+      return { success: true, result: { simulated: true }, message: 'Static demo mode: tamper simulation is local-only.' };
+    }
     return fetchWithAuth('/api/audit-logs/simulate-tamper', {
       method: 'POST'
     });
   },
 
   restoreAuditLogs: async (): Promise<{ success: boolean }> => {
+    if (isStaticDeployment()) return { success: true };
     return fetchWithAuth('/api/audit-logs/restore', {
       method: 'POST'
     });
@@ -320,6 +371,11 @@ export const api = {
     isVideo?: boolean;
     gpsThresholdMeters?: number;
   }): Promise<{ success: boolean; verification: any }> => {
+    if (isStaticDeployment()) {
+      if (!data.projectId) throw new Error('Project ID is required for static verification.');
+      const project = await clientMockDb.getProjectById(data.projectId);
+      return { success: true, verification: { status: 'VERIFIED', confidence: 75, projectId: project.id, message: 'Demo-mode evidence check completed against the selected project.' } };
+    }
     return fetchWithAuth('/api/evidence/verify', {
       method: 'POST',
       body: JSON.stringify(data)
@@ -328,6 +384,10 @@ export const api = {
 
   // AI Report (Gemini API / Heuristic)
   generateAiAuditReport: async (projectId: string): Promise<{ report: string; projectCode: string; title: string }> => {
+    if (isStaticDeployment()) {
+      const report = await clientMockDb.generateAiAuditReport(projectId);
+      return { report: JSON.stringify(report, null, 2), projectCode: report.projectCode, title: report.title };
+    }
     return fetchWithAuth(`/api/ai/audit-report/${projectId}`, {
       method: 'POST'
     });
@@ -335,20 +395,45 @@ export const api = {
 
   // Public Transparency
   getPublicSummary: async (): Promise<any> => {
+    if (isStaticDeployment()) return clientMockDb.getPublicSummary();
     return fetchWithAuth('/api/public/summary');
   },
 
   getPublicProjects: async (): Promise<{ projects: Project[]; count: number }> => {
+    if (isStaticDeployment()) return clientMockDb.getPublicProjects();
     return fetchWithAuth('/api/public/projects');
   },
 
   // Contractor Network Fraud Analysis
   getContractorNetwork: async (): Promise<any> => {
+    if (isStaticDeployment()) {
+      const projects = (await clientMockDb.getProjects()).projects;
+      const byVendor = new Map<string, any>();
+      projects.forEach(p => {
+        const name = p.vendorName || 'Unassigned';
+        const e = byVendor.get(name) || { contractorName: name, projects: 0, totalValue: 0, districts: new Set<string>() };
+        e.projects += 1; e.totalValue += Number(p.sanctionedAmount || 0); e.districts.add(p.district); byVendor.set(name, e);
+      });
+      return { contractors: Array.from(byVendor.values()).map((e: any) => ({ ...e, districts: Array.from(e.districts) })) };
+    }
     return fetchWithAuth('/api/network/contractors');
   },
 
   // Multilingual RAG Citizen Chatbot
   queryChatbot: async (query: string, language?: string): Promise<any> => {
+    if (isStaticDeployment()) {
+      const { projects } = await clientMockDb.getProjects();
+      const q = query.toLowerCase();
+      let matched = projects;
+      if (q.includes('delay')) matched = projects.filter(p => p.status === 'Delayed');
+      else if (q.includes('risk')) matched = projects.filter(p => (p.riskAnalysis?.overallScore || 0) > 60);
+      else if (q.includes('completed')) matched = projects.filter(p => p.status === 'Completed');
+      const top = matched.slice(0, 5);
+      const response = top.length
+        ? top.map(p => `${p.projectCode}: ${p.title} — ${p.status}, risk ${p.riskAnalysis.overallScore}/100, progress ${p.completionPercentage}%`).join('\n')
+        : (language === 'hi' ? 'कोई संबंधित परियोजना नहीं मिली।' : 'No matching projects found.');
+      return { answer: language === 'hi' ? `स्थैतिक प्रदर्शन मोड में उपलब्ध डेटा के आधार पर:\n${response}` : `Based on the available static demo data:\n${response}`, projects: top, staticMode: true };
+    }
     return fetchWithAuth('/api/chat/query', {
       method: 'POST',
       body: JSON.stringify({ query, language })
@@ -357,6 +442,11 @@ export const api = {
 
   // NLP Feedback Intelligence
   analyzeGrievanceFeedback: async (data: { feedbackId?: string; subject: string; description: string; projectId?: string }): Promise<any> => {
+    if (isStaticDeployment()) {
+      const text = `${data.subject} ${data.description}`.toLowerCase();
+      const category = text.includes('quality') ? 'Poor Quality' : text.includes('delay') ? 'Delayed Work' : 'General Grievance';
+      return { success: true, category, sentiment: 'neutral', priority: text.includes('urgent') || text.includes('danger') ? 'high' : 'normal', staticMode: true };
+    }
     return fetchWithAuth('/api/nlp/analyze-feedback', {
       method: 'POST',
       body: JSON.stringify(data)
@@ -365,10 +455,18 @@ export const api = {
 
   // Data Ingestion & Impact Calculator
   getImpactSummary: async (): Promise<any> => {
+    if (isStaticDeployment()) {
+      const summary = await clientMockDb.getPublicSummary();
+      return { ...summary, staticMode: true };
+    }
     return fetchWithAuth('/api/impact/summary');
   },
 
   ingestData: async (csvContent: string, sourceLabel?: string): Promise<any> => {
+    if (isStaticDeployment()) {
+      const rows = csvContent.split(/\r?\n/).filter(Boolean).length - 1;
+      return { success: true, importedRows: Math.max(0, rows), sourceLabel: sourceLabel || 'Static demo import', staticMode: true };
+    }
     return fetchWithAuth('/api/data/ingest', {
       method: 'POST',
       body: JSON.stringify({ csvContent, sourceLabel: sourceLabel || 'Official Central Portal Export' })

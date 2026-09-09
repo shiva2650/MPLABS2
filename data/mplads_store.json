@@ -6458,20 +6458,6 @@
   ],
   "auditLogs": [
     {
-      "userId": "MP001",
-      "userName": "Shri Rajesh Kumar",
-      "userRole": "MP",
-      "action": "USER_LOGIN",
-      "targetEntity": "Auth",
-      "targetId": "MP001",
-      "newValue": "Logged in with role MP via cryptographically signed JWT",
-      "ipAddressMasked": "10.14.02.***",
-      "id": "LOG-82197-118",
-      "timestamp": "2026-09-09T16:08:02.197Z",
-      "prevHash": "d2d8d41d89c3bec9ab639993f3a4267e1e210a4c9e548722629a463697cdeb3c",
-      "entryHash": "6f4a3d2c36836b58fe642bb4d7a09aeacae863ef0df2cd6a434b3d62c1e0dcac"
-    },
-    {
       "userId": "ADMIN001",
       "userName": "Dr. Ananya Sharma, IAS",
       "userRole": "ADMIN",
@@ -7808,6 +7794,6 @@
     }
   ],
   "aiInteractions": [],
-  "latestLogHash": "6f4a3d2c36836b58fe642bb4d7a09aeacae863ef0df2cd6a434b3d62c1e0dcac",
-  "lastSavedAt": "2026-09-09T16:08:02.200Z"
+  "latestLogHash": "d2d8d41d89c3bec9ab639993f3a4267e1e210a4c9e548722629a463697cdeb3c",
+  "lastSavedAt": "2026-09-09T13:41:45.935Z"
 }

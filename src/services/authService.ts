@@ -1,69 +1,9 @@
 import { User } from '../types/index.js';
+import { apiUrl, isStaticDeployment } from './apiConfig.js';
+import { authStorage } from './authStorage.js';
+import { staticGetMe, staticLogin, staticLogout } from './staticAuth.js';
 
-const TOKEN_KEY = 'mplads_auth_token';
-const USER_KEY = 'mplads_auth_user';
-
-// In-memory fallback if sessionStorage is blocked
-let inMemoryToken: string | null = null;
-let inMemoryUser: User | null = null;
-
-// Clean up any legacy persistent localStorage tokens to mitigate XSS persistence
-if (typeof window !== 'undefined' && window.localStorage) {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-  } catch {}
-}
-
-export const authStorage = {
-  getToken: (): string | null => {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      try {
-        return sessionStorage.getItem(TOKEN_KEY) || inMemoryToken;
-      } catch {
-        return inMemoryToken;
-      }
-    }
-    return inMemoryToken;
-  },
-  setToken: (token: string) => {
-    inMemoryToken = token;
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      try {
-        sessionStorage.setItem(TOKEN_KEY, token);
-      } catch {}
-    }
-  },
-  removeToken: () => {
-    inMemoryToken = null;
-    inMemoryUser = null;
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      try {
-        sessionStorage.removeItem(TOKEN_KEY);
-        sessionStorage.removeItem(USER_KEY);
-      } catch {}
-    }
-  },
-  getUser: (): User | null => {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      try {
-        const raw = sessionStorage.getItem(USER_KEY);
-        return raw ? JSON.parse(raw) : inMemoryUser;
-      } catch {
-        return inMemoryUser;
-      }
-    }
-    return inMemoryUser;
-  },
-  setUser: (user: User) => {
-    inMemoryUser = user;
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      try {
-        sessionStorage.setItem(USER_KEY, JSON.stringify(user));
-      } catch {}
-    }
-  }
-};
+export { authStorage };
 
 export interface LoginResponse {
   token: string;
@@ -73,36 +13,55 @@ export interface LoginResponse {
 
 export const AuthService = {
   login: async (userId: string, password: string): Promise<LoginResponse> => {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ userId, password })
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Invalid User ID or Password.');
-      }
-      const errorPayload = await response.json().catch(() => ({ error: 'Authentication failed' }));
-      throw new Error(errorPayload.error || `Authentication failed (Status ${response.status})`);
+    if (isStaticDeployment()) {
+      return staticLogin(userId, password);
     }
+    try {
+      const response = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId: userId.trim(), password })
+      });
 
-    const data: LoginResponse = await response.json();
-    authStorage.setToken(data.token);
-    authStorage.setUser(data.user);
-    return data;
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Invalid User ID or password.');
+        }
+        if (response.status === 403) {
+          throw new Error('Access denied.');
+        }
+        const errorPayload = await response.json().catch(() => ({ error: 'Authentication service error' }));
+        throw new Error(errorPayload.error || `Authentication service error (HTTP ${response.status})`);
+      }
+
+      const data: LoginResponse = await response.json();
+      if (!data?.token || !data?.user?.role) {
+        throw new Error('Authentication service returned an invalid session.');
+      }
+      authStorage.setToken(data.token);
+      authStorage.setUser(data.user);
+      return data;
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new Error('Unable to reach the authentication server. Check the deployed API URL and backend status.');
+      }
+      throw error;
+    }
   },
 
   getMe: async (): Promise<{ user: User }> => {
+    if (isStaticDeployment()) {
+      return staticGetMe();
+    }
     const token = authStorage.getToken();
     if (!token) {
       authStorage.removeToken();
       throw new Error('No authentication token found');
     }
 
-    const res = await fetch('/api/auth/me', {
+    const res = await fetch(apiUrl('/api/auth/me'), {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`
@@ -132,10 +91,14 @@ export const AuthService = {
   },
 
   logout: async (): Promise<void> => {
+    if (isStaticDeployment()) {
+      staticLogout();
+      return;
+    }
     const token = authStorage.getToken();
     try {
       if (token) {
-        await fetch('/api/auth/logout', {
+        await fetch(apiUrl('/api/auth/logout'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

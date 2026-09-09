@@ -92,21 +92,12 @@ export function verifyToken(token: string): User | null {
     }
 
     const foundUser = db.getUserByUserId(decoded.userId);
-    if (foundUser) {
-      return sanitizeUser(foundUser);
+    if (!foundUser) {
+      // A validly signed token is not enough on its own; the user must still
+      // exist in the current authoritative user store.
+      return null;
     }
-
-    // Safely reconstruct sanitized user from cryptographically verified claims
-    return {
-      id: `user_${decoded.userId.toLowerCase()}`,
-      userId: decoded.userId,
-      name: decoded.name || decoded.userId,
-      role: normalizeRole(decoded.role),
-      designation: decoded.role === 'ADMIN' ? 'District Authority' : decoded.role === 'MP' ? 'Member of Parliament' : 'Implementing Officer',
-      district: decoded.district,
-      constituency: decoded.constituency,
-      agencyId: decoded.agencyId
-    };
+    return sanitizeUser(foundUser);
   } catch {
     return null;
   }

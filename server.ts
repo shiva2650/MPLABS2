@@ -6,12 +6,32 @@ import { authenticateToken } from './server/auth.js';
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
+  const configuredCorsOrigins = (process.env.CORS_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean);
+
+  // Minimal dependency-free CORS middleware for bearer-token API calls.
+  // In production, set CORS_ORIGINS to the exact frontend origin(s).
+  app.use((req, res, next) => {
+    const requestOrigin = req.headers.origin;
+    if (requestOrigin && configuredCorsOrigins.includes(requestOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    }
+    if (req.method === 'OPTIONS') {
+      if (requestOrigin && !configuredCorsOrigins.includes(requestOrigin)) {
+        return res.status(403).json({ error: 'CORS origin not allowed.' });
+      }
+      return res.status(204).end();
+    }
+    next();
+  });
 
   // Determine production vs development:
   // Bundled dist/server.cjs or NODE_ENV === 'production' runs static production mode
-  const isBundled = (typeof __filename !== 'undefined' && __filename.includes('dist')) ||
-                    (typeof process.argv[1] === 'string' && (process.argv[1].includes('dist') || process.argv[1].endsWith('.cjs')));
+  const isBundled = (typeof __filename !== 'undefined' && __filename.includes('server-dist')) ||
+                    (typeof process.argv[1] === 'string' && (process.argv[1].includes('server-dist') || process.argv[1].endsWith('.cjs')));
   const isProduction = process.env.NODE_ENV === 'production' || isBundled;
 
   app.use(express.json({ limit: '10mb' }));

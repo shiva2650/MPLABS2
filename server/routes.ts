@@ -93,16 +93,13 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
 
   const user = db.users.find(u => u.userId.toUpperCase() === normalizedId) || users.find(u => u.userId.toUpperCase() === normalizedId);
 
-  const rawPassword = String(password).trim();
-  // Strictly enforce password matching against stored credential (salted PBKDF2 or plaintext fallback)
-  const passwordValid = user && (
-    (user.salt && verifyPassword(rawPassword, user.passwordHash, user.salt)) ||
-    user.passwordHash === rawPassword
-  );
+  const rawPassword = String(password);
+  // Production authentication must use the stored password hash only.
+  const passwordValid = Boolean(user && user.salt && verifyPassword(rawPassword, user.passwordHash, user.salt));
 
   if (!user || !passwordValid) {
     return res.status(401).json({
-      error: 'Invalid User ID or Password. Demo credentials: ADMIN001 / Admin@123, MP001 / MP@123, AGENCY001 / Agency@123'
+      error: 'Invalid User ID or password.'
     });
   }
 
