@@ -1,282 +1,257 @@
 import React, { useState } from 'react';
-import { Project, CitizenFeedback, IssueType } from '../types/index.ts';
-import { submitCitizenFeedback } from '../services/api.ts';
-import {
-  MessageSquarePlus,
-  Send,
-  CheckCircle2,
-  AlertCircle,
-  FileImage,
-  Clock,
-  Building,
-  ShieldCheck
-} from 'lucide-react';
+import { Project } from '../types/index.js';
+import { api } from '../services/api.js';
+import { useLanguage } from '../context/LanguageContext.js';
+import { X, MessageSquareWarning, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 interface CitizenFeedbackModalProps {
   projects: Project[];
-  feedbackList: CitizenFeedback[];
-  preSelectedProject?: Project | null;
-  onClose?: () => void;
-  onFeedbackSubmitted?: () => void;
+  preselectedProjectId?: string;
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
 }
 
 export const CitizenFeedbackModal: React.FC<CitizenFeedbackModalProps> = ({
   projects,
-  feedbackList,
-  preSelectedProject,
+  preselectedProjectId,
+  isOpen,
   onClose,
-  onFeedbackSubmitted
+  onSuccess
 }) => {
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(
-    preSelectedProject ? preSelectedProject.id : (projects[0]?.id || '')
-  );
-  const [issueType, setIssueType] = useState<IssueType>('Substandard Construction Quality');
+  const { language, t } = useLanguage();
+  const [projectId, setProjectId] = useState(preselectedProjectId || projects?.[0]?.id || '');
+  const [issueType, setIssueType] = useState('Substandard Material Quality');
+  const [description, setDescription] = useState('');
   const [citizenName, setCitizenName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
-  const [comments, setComments] = useState('');
+  const [citizenContact, setCitizenContact] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successId, setSuccessId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setProjectId(preselectedProjectId || projects?.[0]?.id || '');
+      setError(null);
+      setSuccessId(null);
+    }
+  }, [isOpen, preselectedProjectId, projects]);
+
+  if (!isOpen) return null;
+
+  const issueTypes = [
+    { key: 'Substandard Material Quality', labelEn: 'Substandard Material Quality', labelHi: 'घटिया निर्माण सामग्री की गुणवत्ता' },
+    { key: 'Unexplained Delay in Execution', labelEn: 'Unexplained Delay in Execution', labelHi: 'कार्य निष्पादन में अकारण विलंब' },
+    { key: 'Location Discrepancy (Work Not At Sanctioned Site)', labelEn: 'Location Discrepancy (Work Not At Sanctioned Site)', labelHi: 'स्थान विसंगति (स्वीकृत स्थल पर कार्य नहीं)' },
+    { key: 'Suspected Financial Misappropriation / Incomplete Work', labelEn: 'Suspected Financial Misappropriation / Incomplete Work', labelHi: 'वित्तीय अनियमितता / अधूरा कार्य का संदेह' },
+    { key: 'Work Completed but Not Put to Public Use', labelEn: 'Work Completed but Not Put to Public Use', labelHi: 'कार्य पूर्ण किंतु जनउपयोग हेतु उपलब्ध नहीं' },
+    { key: 'General Grievance / Inquiry', labelEn: 'General Grievance / Inquiry', labelHi: 'सामान्य शिकायत / पूछताछ' }
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProjectId || !comments) {
-      setErrorMsg('Please select a project and describe the issue.');
-      return;
-    }
-
+    setError(null);
     setSubmitting(true);
-    setErrorMsg(null);
+
     try {
-      await submitCitizenFeedback({
-        projectId: selectedProjectId,
+      const res = await api.submitCitizenFeedback({
+        projectId,
         issueType,
-        citizenName: citizenName || 'Concerned Citizen',
-        contactEmail: contactEmail || undefined,
-        comments,
-        photoUrl: photoUrl || undefined
+        description,
+        citizenName: citizenName.trim() || undefined,
+        citizenContact: citizenContact.trim() || undefined,
+        photoUrl: photoUrl.trim() || undefined
       });
 
-      setSuccessMsg('Grievance registered successfully! District Authority will review.');
-      setComments('');
-      setPhotoUrl('');
-      if (onFeedbackSubmitted) onFeedbackSubmitted();
+      setSuccessId(res.feedbackId);
+      onSuccess();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to submit grievance.');
+      setError(err.message || (language === 'hi' ? 'शिकायत दर्ज करने में विफलता।' : 'Failed to submit grievance.'));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="bg-blue-900 text-white p-5 rounded-lg shadow-xs">
-        <div className="flex items-center gap-3 mb-2">
-          <MessageSquarePlus className="w-6 h-6 text-amber-400" />
-          <h2 className="text-lg font-bold">Public Vigilance & Citizen Grievance Redressal</h2>
-        </div>
-        <p className="text-xs text-blue-100 leading-relaxed max-w-3xl">
-          Under the official MPLADS Guidelines, citizens are empowered to inspect community assets in their
-          localities and report discrepancies. Feedback is logged directly into the administrative vigilance queue
-          for district magistrate review. Citizen reports do not overwrite official engineering records.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Grievance Submission Form */}
-        <div className="lg:col-span-6 bg-white p-5 rounded-lg border border-gray-200 shadow-2xs">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-blue-900" />
-              <span>Lodge Citizen Observation / Complaint</span>
-            </h3>
-            <span className="text-[11px] text-gray-500 font-medium">Form 10-A (Public)</span>
-          </div>
-
-          {successMsg && (
-            <div className="p-3 mb-4 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span>{successMsg}</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-govt-navy-dark/60 backdrop-blur-xs overflow-y-auto">
+      <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-border overflow-hidden my-8">
+        <div className="px-6 py-4 bg-govt-navy text-white flex items-center justify-between border-b border-govt-navy-dark">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-govt-navy-light text-white border border-white/20">
+              <MessageSquareWarning className="w-5 h-5 text-govt-saffron" />
             </div>
-          )}
-
-          {errorMsg && (
-            <div className="p-3 mb-4 rounded-md bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-3.5">
             <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                Select MPLADS Work *
+              <h2 className="text-base font-bold text-white tracking-tight">
+                {language === 'hi' ? 'नागरिक शिकायत निवारण एवं जन प्रतिक्रिया' : 'Public Grievance Redressal & Citizen Feedback'}
+              </h2>
+              <div className="text-xs text-panel-bg/80">
+                {language === 'hi' ? 'ज़िला प्राधिकरण को सीधे जन निगरानी चैनल' : 'Direct public monitoring channel to District Authority'}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-panel-bg/80 hover:text-white hover:bg-govt-navy-light transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {successId ? (
+          <div className="p-6 text-center space-y-4">
+            <div className="w-12 h-12 bg-panel-bg text-status-verified rounded-full flex items-center justify-center mx-auto border border-status-verified/30">
+              <CheckCircle2 className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-body">
+                {language === 'hi' ? 'शिकायत सफलतापूर्वक पंजीकृत हुई' : 'Grievance Successfully Registered'}
+              </h3>
+              <div className="font-mono text-xs font-bold text-status-verified mt-1">
+                {language === 'hi' ? 'पावती संख्या:' : 'Acknowledgement Number:'} {successId}
+              </div>
+              <p className="text-xs text-slate-muted mt-2 max-w-sm mx-auto">
+                {language === 'hi'
+                  ? 'आपकी रिपोर्ट भौतिक निरीक्षण हेतु ज़िला सतर्कता डेस्क को अग्रेषित कर दी गई है। व्यक्तिगत पहचान पूर्णतः गोपनीय रखी जाती है।'
+                  : 'Your report has been securely routed to the District Authority vigilance desk for physical inspection. Personal identifiers remain strictly protected.'}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setSuccessId(null);
+                onClose();
+              }}
+              className="px-6 py-2 bg-govt-navy text-white rounded-lg text-xs font-bold hover:bg-govt-navy-light transition-colors cursor-pointer"
+            >
+              {language === 'hi' ? 'संपन्न' : 'Done'}
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+            {error && (
+              <div className="p-3 bg-panel-bg border border-status-flagged/30 text-status-flagged rounded-xl font-medium">
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label className="block font-bold text-slate-body mb-1">
+                {language === 'hi' ? 'लक्षित विकास परियोजना *' : 'Target Developmental Project *'}
               </label>
               <select
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
                 required
-                className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800 font-medium"
+                value={projectId}
+                onChange={e => setProjectId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-border rounded-lg text-slate-body bg-white focus:ring-2 focus:ring-govt-navy focus:border-govt-navy focus:outline-hidden"
               >
-                {projects.map((p) => (
+                {projects.map(p => (
                   <option key={p.id} value={p.id}>
-                    [{p.workId}] {p.title} ({p.district}, {p.state})
+                    [{p.projectCode}] {p.title} ({p.district})
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                Category of Issue *
+              <label className="block font-bold text-slate-body mb-1">
+                {language === 'hi' ? 'विसंगति / शिकायत का प्रकार *' : 'Nature of Discrepancy / Grievance *'}
               </label>
               <select
                 value={issueType}
-                onChange={(e) => setIssueType(e.target.value as IssueType)}
-                className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800 font-medium"
+                onChange={e => setIssueType(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-border rounded-lg text-slate-body bg-white focus:ring-2 focus:ring-govt-navy focus:border-govt-navy focus:outline-hidden"
               >
-                <option value="Substandard Construction Quality">Substandard Construction Quality</option>
-                <option value="Work Not Started">Work Not Started / Inordinate Delay</option>
-                <option value="Asset Not Found">Asset Not Found / Ghost Project</option>
-                <option value="Location Mismatch">Location Mismatch / Wrong Site Executed</option>
-                <option value="Damaged Asset">Damaged / Non-functional Asset</option>
-                <option value="Other Discrepancy">Other Discrepancy</option>
+                {issueTypes.map(t => (
+                  <option key={t.key} value={t.key}>
+                    {language === 'hi' ? t.labelHi : t.labelEn}
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                  Citizen Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Ramesh Chandra (or Anonymous)"
-                  value={citizenName}
-                  onChange={(e) => setCitizenName(e.target.value)}
-                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                  Contact Email / Phone (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="For status updates"
-                  value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
-                  className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800"
-                />
-              </div>
-            </div>
-
             <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                Ground Observation & Details *
+              <label className="block font-bold text-slate-body mb-1">
+                {language === 'hi' ? 'विस्तृत विवरण एवं तथ्य *' : 'Detailed Observation & Specific Facts *'}
               </label>
               <textarea
                 rows={3}
                 required
-                placeholder="State specific observations regarding physical progress, asset condition, or absence of signboards..."
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800"
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder={language === 'hi' ? 'विशिष्ट दृश्य अवलोकन, निरीक्षण तिथि, अथवा निर्माण में देखी गई कमियां दर्ज करें...' : 'State specific visual observations, date observed, or quality deficiencies noticed at the site...'}
+                className="w-full px-3 py-2 border border-slate-border rounded-lg text-slate-body bg-white focus:ring-2 focus:ring-govt-navy focus:border-govt-navy focus:outline-hidden"
               />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-slate-body mb-1">
+                  {language === 'hi' ? 'नागरिक का नाम (वैकल्पिक)' : 'Citizen Name (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  value={citizenName}
+                  onChange={e => setCitizenName(e.target.value)}
+                  placeholder={language === 'hi' ? 'अनाम या आपका नाम' : 'Anonymous or Name'}
+                  className="w-full px-3 py-2 border border-slate-border rounded-lg text-slate-body bg-white focus:ring-2 focus:ring-govt-navy focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-body mb-1">
+                  {language === 'hi' ? 'मोबाइल नंबर (एसएमएस अपडेट हेतु)' : 'Mobile Number (For SMS updates)'}
+                </label>
+                <input
+                  type="tel"
+                  value={citizenContact}
+                  onChange={e => setCitizenContact(e.target.value)}
+                  placeholder="e.g. 9876543210"
+                  className="w-full px-3 py-2 border border-slate-border rounded-lg text-slate-body bg-white focus:ring-2 focus:ring-govt-navy focus:outline-hidden"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                Site Evidence Photo URL (Optional)
+              <label className="block font-bold text-slate-body mb-1">
+                {language === 'hi' ? 'तस्वीर साक्ष्य लिंक (वैकल्पिक)' : 'Photo Evidence URL (Optional)'}
               </label>
               <input
                 type="url"
-                placeholder="https://example.com/photo.jpg"
                 value={photoUrl}
-                onChange={(e) => setPhotoUrl(e.target.value)}
-                className="w-full text-xs py-2 px-3 bg-gray-50 border border-gray-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-900 text-gray-800"
+                onChange={e => setPhotoUrl(e.target.value)}
+                placeholder="https://... photo link of site"
+                className="w-full px-3 py-2 border border-slate-border rounded-lg text-slate-body bg-white font-mono text-[11px] focus:ring-2 focus:ring-govt-navy focus:outline-hidden"
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-2.5 px-4 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{submitting ? 'Lodging Observation...' : 'Submit Citizen Observation'}</span>
-            </button>
+            <div className="p-2.5 bg-panel-bg border border-slate-border rounded-xl text-[11px] text-govt-navy flex items-center gap-2 font-medium">
+              <ShieldCheck className="w-4 h-4 text-govt-navy shrink-0" />
+              <span>
+                {language === 'hi'
+                  ? 'व्हिसलब्लोअर सुरक्षा: मोबाइल नंबर गोपनीय रखे जाते हैं तथा कभी सार्वजनिक नहीं किए जाते।'
+                  : 'Whistleblower protection: Phone numbers are masked and never made public.'}
+              </span>
+            </div>
+
+            <div className="pt-3 border-t border-slate-border flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg border border-slate-border text-slate-body bg-white hover:bg-panel-bg font-bold cursor-pointer transition-colors"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-5 py-2 rounded-lg bg-govt-navy text-white font-bold hover:bg-govt-navy-light disabled:opacity-50 flex items-center gap-2 shadow-xs cursor-pointer transition-colors"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{submitting ? (language === 'hi' ? 'पंजीकृत हो रहा है...' : 'Registering...') : (language === 'hi' ? 'शिकायत दर्ज करें' : 'Register Grievance')}</span>
+              </button>
+            </div>
           </form>
-        </div>
-
-        {/* Public Grievances Log */}
-        <div className="lg:col-span-6 bg-white p-5 rounded-lg border border-gray-200 shadow-2xs flex flex-col">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-gray-600" />
-              <span>Recent Public Observations Ledger</span>
-            </h3>
-            <span className="text-[11px] bg-gray-100 text-gray-700 font-semibold px-2 py-0.5 rounded">
-              {feedbackList.length} Entries
-            </span>
-          </div>
-
-          <div className="space-y-3 overflow-y-auto max-h-[460px] pr-1">
-            {feedbackList.length === 0 ? (
-              <div className="text-center py-10 text-gray-500 text-xs">
-                No citizen observations recorded yet.
-              </div>
-            ) : (
-              feedbackList.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-3 bg-gray-50 rounded-md border border-gray-200 hover:bg-blue-50/30 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div>
-                      <span className="text-[10px] font-bold text-blue-900 uppercase">
-                        {item.workId}
-                      </span>
-                      <h4 className="text-xs font-bold text-gray-900 line-clamp-1">
-                        {item.projectTitle}
-                      </h4>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                        item.status === 'Resolved'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : item.status === 'Under Investigation'
-                          ? 'bg-amber-100 text-amber-800'
-                          : item.status === 'Dismissed'
-                          ? 'bg-gray-100 text-gray-700'
-                          : 'bg-blue-100 text-blue-800'
-                      }`}
-                    >
-                      {item.status}
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] font-semibold text-rose-700 mb-1 flex items-center gap-1">
-                    <span>Issue:</span>
-                    <span>{item.issueType}</span>
-                  </div>
-
-                  <p className="text-xs text-gray-700 italic bg-white p-2 rounded border border-gray-100 mb-1.5">
-                    "{item.comments}"
-                  </p>
-
-                  <div className="flex items-center justify-between text-[10px] text-gray-500">
-                    <span>Reported by: {item.citizenName}</span>
-                    <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

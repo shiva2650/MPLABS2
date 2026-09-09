@@ -1,697 +1,448 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { User, Project, Alert, CitizenFeedback, VendorAnalytics } from './types/index.ts';
-import {
-  getStoredUser,
-  getStoredToken,
-  logoutUser,
-  fetchPublicStats,
-  fetchMpStats,
-  fetchProjects,
-  fetchAlerts,
-  fetchFeedback,
-  fetchVendorAnalytics
-} from './services/api.ts';
-import { Navbar } from './components/Navbar.tsx';
-import { KpiCards } from './components/KpiCards.tsx';
-import { SearchFilterPanel } from './components/SearchFilterPanel.tsx';
-import { MpDataTable } from './components/MpDataTable.tsx';
-import { GisMap } from './components/GisMap.tsx';
-import { CitizenFeedbackModal } from './components/CitizenFeedbackModal.tsx';
-import { LoginModal } from './components/LoginModal.tsx';
-import { MpDashboard } from './components/MpDashboard.tsx';
-import { AdminDashboard } from './components/AdminDashboard.tsx';
-import { AgencyDashboard } from './components/AgencyDashboard.tsx';
-import { AiVerificationLab } from './components/AiVerificationLab.tsx';
-import { ProjectDetailModal } from './components/ProjectDetailModal.tsx';
-import { VendorAnalyticsView } from './components/VendorAnalyticsView.tsx';
-import { AiAssistantChatbot } from './components/AiAssistantChatbot.tsx';
-import { GrievanceTrackerModal } from './components/GrievanceTrackerModal.tsx';
-import { ScheduleInspectionModal } from './components/ScheduleInspectionModal.tsx';
-import { RecordInspectionModal } from './components/RecordInspectionModal.tsx';
-import { ProjectInspection } from './types/index.ts';
-import { ErrorBoundary } from './components/ErrorBoundary.tsx';
-import { errorLogger, LoggedError } from './services/errorLogger.ts';
-import { validateFirebaseConfig } from './firebase/config.ts';
-import {
-  Building2,
-  MapPin,
-  FileText,
-  IndianRupee,
-  CheckCircle2,
-  Clock,
-  ShieldAlert,
-  ArrowRight,
-  Eye,
-  RefreshCw,
-  AlertOctagon,
-  X
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { LanguageProvider, useLanguage } from './context/LanguageContext.js';
+import { Project, RiskAlert } from './types/index.js';
+import { useDataService } from './services/dataService.js';
 
-export default function App() {
-  // Current Authenticated User Session with early detection
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      errorLogger.setInitPhase('session_restore');
-      return getStoredUser();
-    } catch (err) {
-      errorLogger.logInitFailure('session_restore', err);
-      return null;
-    }
-  });
+// Layout Components
+import { Navbar } from './components/Navbar.js';
+import { Sidebar, TAB_ALLOWED_ROLES } from './components/Sidebar.js';
+import { OfficerRestrictedGate } from './components/OfficerRestrictedGate.js';
+import { GISMap } from './components/GISMap.js';
+import { ProjectModal } from './components/ProjectModal.js';
+import { RecommendModal } from './components/RecommendModal.js';
+import { AlertActionModal } from './components/AlertActionModal.js';
 
-  // Track early initialization diagnostics
-  const [initErrors, setInitErrors] = useState<LoggedError[]>(() => [
-    ...errorLogger.getErrorsByType('init'),
-    ...errorLogger.getErrorsByType('firebase')
-  ]);
-  const [showInitDiagnostics, setShowInitDiagnostics] = useState(false);
+// Pages
+import { LandingPage } from './pages/LandingPage.js';
+import { LoginPage } from './pages/LoginPage.js';
+import { DashboardPage } from './pages/DashboardPage.js';
+import { ProjectsPage } from './pages/ProjectsPage.js';
+import { AiAnomaliesPage } from './pages/AiAnomaliesPage.js';
+import { AlertManagementPage } from './pages/AlertManagementPage.js';
+import { RecommendationsPage } from './pages/RecommendationsPage.js';
+import { FundsLedgerPage } from './pages/FundsLedgerPage.js';
+import { AgencyWorkdeskPage } from './pages/AgencyWorkdeskPage.js';
+import { VendorAnalyticsPage } from './pages/VendorAnalyticsPage.js';
+import { CitizenFeedbackPage } from './pages/CitizenFeedbackPage.js';
+import { ReportsPage } from './pages/ReportsPage.js';
+import { VerificationStatusPage } from './pages/VerificationStatusPage.js';
+import { AuditLogPage } from './pages/AuditLogPage.js';
+import { ContractorNetworkFraudPage } from './pages/ContractorNetworkFraudPage.js';
+import { DataIngestionImpactPage } from './pages/DataIngestionImpactPage.js';
+import { CitizenChatbotDrawer } from './components/CitizenChatbotDrawer.js';
 
-  // Active View Tab: 'public' | 'dashboard' | 'ai-lab' | 'feedback' | 'vendors'
-  const [activeView, setActiveView] = useState<'public' | 'dashboard' | 'ai-lab' | 'feedback' | 'vendors'>('public');
+import { RefreshCw, ArrowLeft } from 'lucide-react';
 
-  // House filter tab on public portal: 'All' | 'Lok Sabha' | 'Rajya Sabha'
-  const [selectedHouseTab, setSelectedHouseTab] = useState<'All' | 'Lok Sabha' | 'Rajya Sabha'>('All');
+type AppViewMode = 'home' | 'workspace' | 'login';
 
-  // Public Search & Filter State
-  const [filters, setFilters] = useState({
-    search: '',
-    house: 'All',
-    state: 'All',
-    category: 'All',
-    status: 'All',
-    riskLevel: 'All'
-  });
+const MainAppContent: React.FC = () => {
+  const { user, currentUser, isPublicMode, enterPublicMode, exitPublicMode, logout, loading: authLoading } = useAuth();
+  const { t } = useLanguage();
+  const effectiveUser = user || currentUser;
 
-  // Modal Controls
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [inspectedProject, setInspectedProject] = useState<Project | null>(null);
-  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
-  const [isGrievanceTrackerOpen, setIsGrievanceTrackerOpen] = useState(false);
-  const [trackingGrievanceId, setTrackingGrievanceId] = useState('');
-  const [scheduleInspectionProject, setScheduleInspectionProject] = useState<Project | null>(null);
-  const [recordingInspection, setRecordingInspection] = useState<ProjectInspection | null>(null);
-
-  // Application Data Stores
-  const [publicStats, setPublicStats] = useState<any | null>(null);
-  const [mpLedger, setMpLedger] = useState<any[]>([]);
-  const [allProjects, setAllProjects] = useState<Project[]>([]);
-  const [allAlerts, setAllAlerts] = useState<Alert[]>([]);
-  const [allFeedback, setAllFeedback] = useState<CitizenFeedback[]>([]);
-  const [allVendors, setAllVendors] = useState<VendorAnalytics[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Subscribe to errorLogger events to track initialization diagnostics
-  useEffect(() => {
-    // Audit Firebase environment variables on mount
-    validateFirebaseConfig();
-
-    const unsubscribe = errorLogger.subscribe((err) => {
-      if (err.type === 'init' || err.type === 'firebase') {
-        setInitErrors((prev) => [err, ...prev.filter((p) => p.id !== err.id)]);
+  // Top-level View Routing:
+  // - 'home': Official MoSPI MPLADS Portal Home & Public Dashboard (LandingPage)
+  // - 'workspace': Interactive Operational Workspace (Dashboard, GIS map, AI anomalies, etc.)
+  // - 'login': Officer authentication screen
+  const [viewMode, setViewMode] = useState<AppViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('mplads_current_view');
+      if (saved === 'workspace' || saved === 'login') {
+        return saved as AppViewMode;
       }
-    });
+    }
+    return 'home';
+  });
+  const [loginPresetRole, setLoginPresetRole] = useState<'MP' | 'ADMIN' | 'AGENCY' | undefined>(undefined);
 
-    return () => unsubscribe();
-  }, []);
-
-  // Data Loader with early failure detection
-  const loadPortalData = async () => {
-    setLoading(true);
-    errorLogger.setInitPhase('portal_data_hydration');
-
-    try {
-      const [stats, mps, projects, alerts, feedback, vendors] = await Promise.all([
-        fetchPublicStats().catch((e) => {
-          errorLogger.logInitFailure('fetch_public_stats', e);
-          return null;
-        }),
-        fetchMpStats().catch((e) => {
-          errorLogger.logInitFailure('fetch_mp_stats', e);
-          return [];
-        }),
-        fetchProjects().catch((e) => {
-          errorLogger.logInitFailure('fetch_projects', e);
-          return [];
-        }),
-        fetchAlerts().catch((e) => {
-          errorLogger.logInitFailure('fetch_alerts', e);
-          return [];
-        }),
-        fetchFeedback().catch((e) => {
-          errorLogger.logInitFailure('fetch_feedback', e);
-          return [];
-        }),
-        fetchVendorAnalytics().catch((e) => {
-          errorLogger.logInitFailure('fetch_vendor_analytics', e);
-          return [];
-        })
-      ]);
-
-      setPublicStats(stats);
-      setMpLedger(mps || []);
-      setAllProjects(projects || []);
-      setAllAlerts(alerts || []);
-      setAllFeedback(feedback || []);
-      setAllVendors(vendors || []);
-      errorLogger.setInitPhase('ready');
-    } catch (err) {
-      console.error('Fatal initialization error in loadPortalData:', err);
-      errorLogger.logInitFailure('load_portal_data_critical', err);
-    } finally {
-      setLoading(false);
+  const navigateToHome = () => {
+    setViewMode('home');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('mplads_current_view', 'home');
     }
   };
 
-  useEffect(() => {
-    loadPortalData();
-  }, [user]);
-
-  // Auth Handlers
-  const handleLoginSuccess = (authenticatedUser: User) => {
-    setUser(authenticatedUser);
-    setActiveView('dashboard');
+  const navigateToWorkspace = () => {
+    setViewMode('workspace');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('mplads_current_view', 'workspace');
+    }
   };
 
-  const handleLogout = async () => {
-    await logoutUser();
-    setUser(null);
-    setActiveView('public');
+  const navigateToLogin = (role?: 'MP' | 'ADMIN' | 'AGENCY') => {
+    setLoginPresetRole(role);
+    setViewMode('login');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('mplads_current_view', 'login');
+    }
   };
 
-  // Sync House Tab with Search Filters
-  const handleHouseTabChange = (house: 'All' | 'Lok Sabha' | 'Rajya Sabha') => {
-    setSelectedHouseTab(house);
-    setFilters((prev) => ({ ...prev, house }));
+  // Navigation State
+  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+
+  // Dedicated Service Layer: replaces local in-memory arrays with asynchronous backend calls
+  // Guarantees persistence of projects, alerts, summary metrics, and feedback across restarts
+  const {
+    projects,
+    alerts,
+    summary,
+    feedbackList,
+    loading,
+    refreshing,
+    refreshData: fetchData
+  } = useDataService();
+
+  // Active Modals State
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [selectedProjectInitialTab, setSelectedProjectInitialTab] = useState<'overview' | 'ai-risk' | 'photos' | 'financials' | 'documents' | 'audit-report'>('overview');
+  const [isRecommendOpen, setIsRecommendOpen] = useState<boolean>(false);
+  const [activeAlertForAction, setActiveAlertForAction] = useState<RiskAlert | null>(null);
+
+  const handleSelectProject = (p: Project | null, tab?: 'overview' | 'ai-risk' | 'photos' | 'financials' | 'documents' | 'audit-report') => {
+    setSelectedProject(p);
+    setSelectedProjectInitialTab(tab || 'overview');
   };
 
-  // Filtered Projects for Public Display
-  const filteredProjects = useMemo(() => {
-    return allProjects.filter((p) => {
-      if (filters.house !== 'All' && p.house !== filters.house) return false;
-      if (filters.state !== 'All' && p.state.toLowerCase() !== filters.state.toLowerCase()) return false;
-      if (filters.category !== 'All' && p.category !== filters.category) return false;
-      if (filters.status !== 'All' && p.status !== filters.status) return false;
-      if (filters.riskLevel !== 'All' && p.riskLevel !== filters.riskLevel) return false;
+  const effectiveRole = isPublicMode ? 'PUBLIC' : effectiveUser?.role || 'PUBLIC';
 
-      if (filters.search) {
-        const q = filters.search.toLowerCase().trim();
-        const matches =
-          p.workId.toLowerCase().includes(q) ||
-          p.title.toLowerCase().includes(q) ||
-          p.mpName.toLowerCase().includes(q) ||
-          p.constituency.toLowerCase().includes(q) ||
-          p.district.toLowerCase().includes(q) ||
-          p.state.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q) ||
-          (p.agencyName && p.agencyName.toLowerCase().includes(q));
-        if (!matches) return false;
-      }
-      return true;
-    });
-  }, [allProjects, filters]);
-
-  // Filter MP ledger by house
-  const filteredMpLedger = useMemo(() => {
-    if (selectedHouseTab === 'All') return mpLedger;
-    return mpLedger.filter((m) => m.house === selectedHouseTab);
-  }, [mpLedger, selectedHouseTab]);
-
-  const formatLakhs = (amt: number) => `₹${(amt / 100000).toFixed(1)} L`;
-
-  const handleSelectProjectById = (workOrId: string) => {
-    const found = allProjects.find(
-      (p) =>
-        p.id === workOrId ||
-        p.workId.toLowerCase() === workOrId.toLowerCase() ||
-        p.title.toLowerCase().includes(workOrId.toLowerCase())
+  // While restoring session from localStorage, show gentle loader
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-panel-bg flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-3 p-6 bg-white rounded-2xl border border-slate-border shadow-xs">
+          <RefreshCw className="w-6 h-6 text-govt-navy animate-spin" />
+          <span className="text-xs font-semibold text-slate-muted">{t.verifyingSession}</span>
+        </div>
+      </div>
     );
-    if (found) {
-      setInspectedProject(found);
-    }
-  };
+  }
+
+  // 1. Officer Login View
+  if (viewMode === 'login') {
+    return (
+      <LoginPage
+        onBackToHome={navigateToHome}
+        onEnterPublic={() => {
+          enterPublicMode();
+          navigateToWorkspace();
+        }}
+        onLoginSuccess={navigateToWorkspace}
+        initialRole={loginPresetRole}
+      />
+    );
+  }
+
+  // 2. Official Portal Home View (LandingPage)
+  if (viewMode === 'home') {
+    return (
+      <>
+        <LandingPage
+          summary={summary}
+          projects={projects}
+          currentUser={effectiveUser}
+          userRole={effectiveRole}
+          onOpenLogin={navigateToLogin}
+          onEnterPublic={() => {
+            enterPublicMode();
+            navigateToWorkspace();
+          }}
+          onReturnToWorkspace={navigateToWorkspace}
+          onLogout={() => {
+            logout();
+            navigateToHome();
+          }}
+          onSelectProject={(p) => handleSelectProject(p)}
+        />
+
+        {/* Modal for Project details preview from Landing Page */}
+        <ProjectModal
+          project={selectedProject}
+          initialTab={selectedProjectInitialTab}
+          onClose={() => setSelectedProject(null)}
+          userRole={effectiveRole}
+          onRefresh={fetchData}
+        />
+
+        {/* Citizen AI Assistant accessible from Portal Home */}
+        <CitizenChatbotDrawer />
+      </>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-gray-900 antialiased selection:bg-blue-900 selection:text-white">
-      {/* Top Government Navigation Header */}
+    <div className="min-h-screen bg-[#FFFFFF] flex flex-col font-sans antialiased text-slate-body overflow-x-hidden w-full max-w-full">
+      {/* Top Navigation Masthead */}
       <Navbar
-        user={user}
-        activeView={activeView}
-        setActiveView={(v) => {
-          if (v === 'dashboard' && !user) {
-            setIsLoginModalOpen(true);
-          } else {
-            setActiveView(v);
-          }
-        }}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
-        onLogout={handleLogout}
-        alertsCount={allAlerts.length}
-        onOpenGrievanceTracker={() => {
-          setTrackingGrievanceId('');
-          setIsGrievanceTrackerOpen(true);
-        }}
-        onToggleAiAssistant={() => setIsAiAssistantOpen((prev) => !prev)}
-        onSelectProject={handleSelectProjectById}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onNavigateToAlerts={() => setCurrentTab('alerts')}
+        onNavigateToProjects={() => setCurrentTab('projects')}
+        onNavigateToHome={navigateToHome}
+        onOpenLogin={() => navigateToLogin()}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Early Initialization Diagnostics Banner */}
-        {initErrors.length > 0 && (
-          <div className="mb-6 bg-amber-50 border border-amber-300 rounded-lg p-4 text-amber-900 shadow-2xs">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <AlertOctagon className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-900">
-                    System Initialization & Configuration Notice ({initErrors.length} Diagnostic Warning{initErrors.length > 1 ? 's' : ''})
-                  </h3>
-                  <p className="text-xs text-amber-800 mt-1">
-                    The error logging service captured early initialization or configuration events during bootstrap. Check browser console for detailed stack traces.
-                  </p>
-                  
-                  {showInitDiagnostics && (
-                    <div className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-2">
-                      {initErrors.map((err) => (
-                        <div key={err.id} className="p-2.5 bg-white/80 rounded border border-amber-200 text-[11px] font-mono">
-                          <div className="flex items-center justify-between font-bold text-gray-800 mb-1">
-                            <span className="uppercase px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px]">
-                              {err.type} • {err.phase || 'startup'}
-                            </span>
-                            <span className="text-[10px] text-gray-500 font-normal">
-                              {new Date(err.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          <p className="text-gray-900 font-sans">{err.message}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+      {/* Main Workspace Layout with Sidebar and Content View */}
+      <div className="flex-1 flex max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6 gap-6">
+        {/* Left Navigation Sidebar */}
+        <Sidebar
+          currentTab={currentTab}
+          onSelectTab={tab => {
+            setCurrentTab(tab);
+            setSidebarOpen(false);
+          }}
+          pendingAlertsCount={alerts.filter(a => a.status === 'New').length}
+          unreadFeedbackCount={feedbackList.filter(f => f.status === 'New' || f.status === 'Under Review').length}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          onNavigateToHome={navigateToHome}
+        />
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowInitDiagnostics((prev) => !prev)}
-                  className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded transition-colors"
-                >
-                  {showInitDiagnostics ? 'Hide Details' : 'View Details'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setInitErrors([])}
-                  className="p-1 text-amber-700 hover:text-amber-900 hover:bg-amber-200 rounded transition-colors"
-                  title="Dismiss notice"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+        {/* Dynamic Main Stage */}
+        <main className="flex-1 min-w-0">
+          {loading ? (
+            <div className="h-96 flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-border shadow-xs">
+              <RefreshCw className="w-8 h-8 text-govt-navy animate-spin" />
+              <div className="text-xs font-semibold text-slate-muted">
+                Loading official MPLADS dataset & executing AI integrity heuristics...
               </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <>
+              {/* Active Tab Routing */}
+              {currentTab === 'dashboard' && (
+                <DashboardPage
+                  summary={summary}
+                  projects={projects}
+                  alerts={alerts}
+                  userRole={effectiveRole}
+                  onSelectProject={p => setSelectedProject(p)}
+                  onNavigateToAnomalies={() => setCurrentTab('anomalies')}
+                  onNavigateToRecommend={() => setIsRecommendOpen(true)}
+                  onNavigateToMap={() => setCurrentTab('map')}
+                />
+              )}
 
-        {/* VIEW 1: PUBLIC PORTAL (eSAKSHI Style) */}
-        {activeView === 'public' && (
-          <div className="space-y-6">
-            {/* Top Title Section */}
-            <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-2xs">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <div className="inline-flex items-center gap-1.5 text-xs font-extrabold text-blue-900 bg-blue-50 px-2.5 py-1 rounded border border-blue-200 uppercase mb-2">
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>MoSPI Central Sector Scheme Portal</span>
-                  </div>
-                  <h2 className="text-xl md:text-2xl font-extrabold text-gray-900 tracking-tight">
-                    Members of Parliament Local Area Development Scheme (MPLADS)
-                  </h2>
-                  <p className="text-xs text-gray-600 mt-1 max-w-3xl">
-                    Constituency fund utilization, physical execution tracking, and automated AI integrity monitoring
-                    across all 543 Lok Sabha and 245 Rajya Sabha parliamentary jurisdictions.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 self-start md:self-auto">
-                  <button
-                    onClick={loadPortalData}
-                    className="p-2 text-gray-600 hover:text-blue-900 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
-                    title="Refresh Data"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                  </button>
-                  <button
-                    onClick={() => setActiveView('feedback')}
-                    className="px-3.5 py-2 text-xs font-bold bg-emerald-800 hover:bg-emerald-700 text-white rounded-md shadow-xs transition-colors"
-                  >
-                    Lodge Public Vigilance Report
-                  </button>
-                </div>
-              </div>
-
-              {/* Parliamentary House Selector Tabs */}
-              <div className="flex items-center gap-2 mt-5 pt-4 border-t border-gray-100">
-                <button
-                  onClick={() => handleHouseTabChange('All')}
-                  className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors ${
-                    selectedHouseTab === 'All'
-                      ? 'bg-blue-900 text-white shadow-2xs'
-                      : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
-                  }`}
-                >
-                  All Houses (788 Members)
-                </button>
-                <button
-                  onClick={() => handleHouseTabChange('Lok Sabha')}
-                  className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors ${
-                    selectedHouseTab === 'Lok Sabha'
-                      ? 'bg-blue-900 text-white shadow-2xs'
-                      : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
-                  }`}
-                >
-                  Lok Sabha (543 Constituencies)
-                </button>
-                <button
-                  onClick={() => handleHouseTabChange('Rajya Sabha')}
-                  className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors ${
-                    selectedHouseTab === 'Rajya Sabha'
-                      ? 'bg-blue-900 text-white shadow-2xs'
-                      : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
-                  }`}
-                >
-                  Rajya Sabha (245 States/UTs)
-                </button>
-              </div>
-            </div>
-
-            {/* Key Performance Indicators (eSAKSHI) */}
-            <KpiCards stats={publicStats} loading={loading} />
-
-            {/* Search & Filter Engine */}
-            <SearchFilterPanel
-              filters={filters}
-              onFilterChange={setFilters}
-              onReset={() =>
-                setFilters({
-                  search: '',
-                  house: 'All',
-                  state: 'All',
-                  category: 'All',
-                  status: 'All',
-                  riskLevel: 'All'
-                })
-              }
-              totalResults={filteredProjects.length}
-            />
-
-            {/* Interactive GIS OpenStreetMap */}
-            <ErrorBoundary fallbackTitle="GIS Mapping System">
-              <GisMap
-                projects={filteredProjects}
-                onSelectProject={(p) => setInspectedProject(p)}
-                selectedProjectId={inspectedProject?.id}
-              />
-            </ErrorBoundary>
-
-            {/* Parliamentary MP Progress Ledger Table */}
-            <MpDataTable
-              mps={filteredMpLedger}
-              onSelectMp={(name) => setFilters((prev) => ({ ...prev, search: name }))}
-            />
-
-            {/* Public Works Directory Grid */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-2xs p-4">
-              <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-                <div>
-                  <h3 className="text-sm font-extrabold text-gray-900">
-                    Works Directory & Physical Inspection Registry
-                  </h3>
-                  <p className="text-xs text-gray-600">
-                    Showing {filteredProjects.length} sanctioned community works
-                  </p>
-                </div>
-              </div>
-
-              {filteredProjects.length === 0 ? (
-                <div className="p-12 text-center text-gray-500 text-xs">
-                  No development works match the selected search criteria.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {filteredProjects.map((p) => (
-                    <div
-                      key={p.id}
-                      className="bg-gray-50/70 border border-gray-200 rounded-lg p-3.5 hover:border-blue-300 hover:bg-blue-50/20 transition-all flex flex-col justify-between"
+              {currentTab === 'map' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentTab('dashboard')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-govt-navy bg-white border border-slate-border hover:bg-panel-bg rounded-lg transition-colors cursor-pointer shadow-xs"
                     >
-                      <div>
-                        <div className="flex items-center justify-between text-[10px] mb-1.5">
-                          <span className="font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                            {p.workId}
-                          </span>
-                          <span
-                            className={`font-bold px-1.5 py-0.5 rounded uppercase ${
-                              p.status === 'Completed'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : p.status === 'Ongoing'
-                                ? 'bg-blue-100 text-blue-800'
-                                : p.status === 'Delayed'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-gray-200 text-gray-800'
-                            }`}
-                          >
-                            {p.status}
-                          </span>
-                        </div>
-
-                        <h4 className="text-xs font-bold text-gray-900 line-clamp-2 mb-1">
-                          {p.title}
-                        </h4>
-
-                        <div className="text-[11px] text-gray-600 mb-2 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
-                          <span className="truncate">{p.district}, {p.state} ({p.constituency})</span>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-1 text-[11px] py-2 border-t border-gray-200/60 mb-2">
-                          <div>
-                            <span className="text-gray-500 text-[10px] block uppercase">Cost</span>
-                            <span className="font-extrabold text-blue-950">
-                              {formatLakhs(p.sanctionedCost || p.estimatedCost)}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500 text-[10px] block uppercase">Representative</span>
-                            <span className="font-semibold text-gray-800 truncate block">
-                              {p.mpName}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Progress */}
-                        <div className="mb-2">
-                          <div className="flex justify-between text-[10px] font-bold text-gray-600 mb-0.5">
-                            <span>Progress</span>
-                            <span>{p.completionPercentage}%</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className="h-1.5 bg-blue-900 rounded-full"
-                              style={{ width: `${p.completionPercentage}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => setInspectedProject(p)}
-                        className="w-full py-1.5 px-3 bg-white hover:bg-blue-900 hover:text-white text-blue-900 text-xs font-bold rounded border border-blue-900 transition-colors flex items-center justify-center gap-1 mt-2"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Inspect Work File</span>
-                      </button>
-                    </div>
-                  ))}
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>← Back to Overview</span>
+                    </button>
+                    <span className="text-xs text-slate-muted">
+                      Dashboard &gt; Map Surveillance
+                    </span>
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-bold text-slate-body tracking-tight">
+                      Geographic Information System (GIS) Surveillance
+                    </h1>
+                    <p className="text-xs text-slate-muted">
+                      Georeferenced project footprints, territorial proximity analysis, and duplicate cluster detection
+                    </p>
+                  </div>
+                  <GISMap
+                    projects={projects}
+                    selectedProjectId={selectedProject?.id}
+                    onSelectProject={p => setSelectedProject(p)}
+                  />
                 </div>
               )}
-            </div>
-          </div>
-        )}
 
-        {/* VIEW 2: ROLE-BASED DASHBOARD (MP / ADMIN / AGENCY) */}
-        {activeView === 'dashboard' && user && (
-          <div>
-            {user.role === 'mp' && (
-              <MpDashboard
-                user={user}
-                projects={allProjects.filter((p) => p.mpId === user.userId || p.constituency === user.constituency)}
-                alerts={allAlerts.filter((a) => {
-                  const proj = allProjects.find((p) => p.id === a.projectId);
-                  return proj && (proj.mpId === user.userId || proj.constituency === user.constituency);
-                })}
-                onSelectProject={(p) => setInspectedProject(p)}
-                onRefreshData={loadPortalData}
-              />
-            )}
+              {currentTab === 'projects' && (
+                <ProjectsPage
+                  projects={projects}
+                  userRole={effectiveRole}
+                  onSelectProject={p => handleSelectProject(p)}
+                  onNavigateToRecommend={() => setIsRecommendOpen(true)}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
 
-            {user.role === 'admin' && (
-              <AdminDashboard
-                user={user}
-                projects={allProjects}
-                alerts={allAlerts}
-                onSelectProject={(p) => setInspectedProject(p)}
-                onRefreshData={loadPortalData}
-              />
-            )}
+              {currentTab === 'anomalies' && (
+                <AiAnomaliesPage
+                  projects={projects}
+                  alerts={alerts}
+                  onSelectProject={(p, tab) => handleSelectProject(p, tab)}
+                  onOpenAlertAction={a => setActiveAlertForAction(a)}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
 
-            {user.role === 'agency' && (
-              <AgencyDashboard
-                user={user}
-                projects={allProjects.filter(
-                  (p) => p.agencyId === user.agencyId || p.agencyName === user.agencyName || user.userId === 'AGENCY001'
-                )}
-                onSelectProject={(p) => setInspectedProject(p)}
-                onRefreshData={loadPortalData}
-              />
-            )}
-          </div>
-        )}
+              {currentTab === 'alerts' && (
+                <AlertManagementPage
+                  alerts={alerts}
+                  projects={projects}
+                  onOpenAlertAction={a => setActiveAlertForAction(a)}
+                  onSelectProject={p => handleSelectProject(p)}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
 
-        {/* VIEW 3: AI INTEGRITY & STATISTICAL TESTBENCH */}
-        {activeView === 'ai-lab' && (
-          <AiVerificationLab
-            projects={allProjects}
-            onSelectProject={(p) => setInspectedProject(p)}
-          />
-        )}
+              {(currentTab === 'recommendations' || currentTab === 'recommend') && (
+                <RecommendationsPage
+                  projects={projects}
+                  userRole={effectiveRole}
+                  onOpenRecommend={() => setIsRecommendOpen(true)}
+                  onSelectProject={p => setSelectedProject(p)}
+                  onRefresh={fetchData}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
 
-        {/* VIEW 4: CITIZEN FEEDBACK & GRIEVANCE REDRESSAL */}
-        {activeView === 'feedback' && (
-          <CitizenFeedbackModal
-            projects={allProjects}
-            feedbackList={allFeedback}
-            onFeedbackSubmitted={loadPortalData}
-          />
-        )}
+              {currentTab === 'funds' && (
+                <FundsLedgerPage
+                  projects={projects}
+                  userRole={effectiveRole}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
 
-        {/* VIEW 5: VENDOR & IMPLEMENTING AGENCY ANALYTICS */}
-        {activeView === 'vendors' && (
-          <VendorAnalyticsView
-            vendors={allVendors}
-            projects={allProjects}
-            currentUser={user}
-            onSelectProject={(p) => setInspectedProject(p)}
-            onSanctionWorkWithVendor={(vendorName, agencyName) => {
-              if (user && user.role === 'admin') {
-                setActiveView('dashboard');
-              } else {
-                setIsLoginModalOpen(true);
-              }
-            }}
-            onRefreshData={loadPortalData}
-          />
-        )}
-      </main>
+              {(currentTab === 'agency' || currentTab === 'agency-workdesk') && (
+                <AgencyWorkdeskPage
+                  projects={projects}
+                  userRole={effectiveRole}
+                  onSelectProject={p => setSelectedProject(p)}
+                  onRefresh={fetchData}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
 
-      {/* Official Sign-In Modal */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLoginSuccess={handleLoginSuccess}
+              {currentTab === 'vendors' && (
+                <VendorAnalyticsPage
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
+
+              {(currentTab === 'grievances' || currentTab === 'feedback') && (
+                <CitizenFeedbackPage
+                  feedbackList={feedbackList}
+                  projects={projects}
+                  userRole={effectiveRole}
+                  onRefresh={fetchData}
+                  onSelectProject={p => setSelectedProject(p)}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
+
+              {currentTab === 'reports' && (
+                <ReportsPage
+                  projects={projects}
+                  alerts={alerts}
+                  userRole={effectiveRole}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
+
+              {currentTab === 'verification' && (
+                <VerificationStatusPage
+                  projects={projects}
+                  onSelectProject={p => setSelectedProject(p)}
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
+
+              {(currentTab === 'audit' || currentTab === 'audit-logs') && (
+                !TAB_ALLOWED_ROLES['audit-logs'].includes(effectiveRole as any) ? (
+                  <OfficerRestrictedGate
+                    toolName="Immutable Ledger Audit Trail"
+                    toolDescription="Cryptographic hash-chained audit logs and tamper-verification certificates are restricted to certified District Authority auditors."
+                    onLogin={() => navigateToLogin('ADMIN')}
+                    onReturnToPublic={() => setCurrentTab('dashboard')}
+                  />
+                ) : (
+                  <AuditLogPage
+                    onBackToDashboard={() => setCurrentTab('dashboard')}
+                  />
+                )
+              )}
+
+              {currentTab === 'network-fraud' && (
+                !TAB_ALLOWED_ROLES['network-fraud'].includes(effectiveRole as any) ? (
+                  <OfficerRestrictedGate
+                    toolName="Contractor Link Graph & Network Fraud Detection"
+                    toolDescription="Forensic vendor relationship graphs, common director detection, and bid collusion algorithms are restricted to District Vigilance Administrators."
+                    onLogin={() => navigateToLogin('ADMIN')}
+                    onReturnToPublic={() => setCurrentTab('dashboard')}
+                  />
+                ) : (
+                  <ContractorNetworkFraudPage
+                    onBackToDashboard={() => setCurrentTab('dashboard')}
+                  />
+                )
+              )}
+
+              {currentTab === 'data-ingestion' && (
+                <DataIngestionImpactPage
+                  onBackToDashboard={() => setCurrentTab('dashboard')}
+                />
+              )}
+            </>
+          )}
+        </main>
+      </div>
+
+      {/* Global Citizen Chatbot Drawer */}
+      <CitizenChatbotDrawer />
+
+      {/* Global Modals */}
+      {/* 1. Project Detailed Audit & Photo Verification Modal */}
+      <ProjectModal
+        project={selectedProject}
+        onClose={() => setSelectedProject(null)}
+        onRefresh={fetchData}
+        userRole={effectiveRole}
+        initialTab={selectedProjectInitialTab}
       />
 
-      {/* Project Dossier Modal */}
-      <ProjectDetailModal
-        project={inspectedProject}
-        feedbackList={allFeedback}
-        user={user}
-        onClose={() => setInspectedProject(null)}
-        onOpenGrievanceForm={(p) => {
-          setInspectedProject(null);
-          setActiveView('feedback');
+      {/* 2. MP New Project Recommendation Modal */}
+      <RecommendModal
+        isOpen={isRecommendOpen}
+        onClose={() => setIsRecommendOpen(false)}
+        onSuccess={() => {
+          setIsRecommendOpen(false);
+          fetchData();
         }}
-        onOpenScheduleInspection={(p) => setScheduleInspectionProject(p)}
-        onOpenRecordInspection={(insp) => setRecordingInspection(insp)}
       />
 
-      {/* AI Assistant Chatbot Drawer/Widget */}
-      <AiAssistantChatbot
-        user={user}
-        isOpen={isAiAssistantOpen}
-        onToggle={() => setIsAiAssistantOpen((prev) => !prev)}
-        onSelectProject={handleSelectProjectById}
+      {/* 3. District Authority Alert Action Modal */}
+      <AlertActionModal
+        alert={activeAlertForAction}
+        isOpen={!!activeAlertForAction}
+        onClose={() => setActiveAlertForAction(null)}
+        onSuccess={() => {
+          setActiveAlertForAction(null);
+          fetchData();
+        }}
       />
 
-      {/* Public Citizen Grievance Tracker */}
-      <GrievanceTrackerModal
-        isOpen={isGrievanceTrackerOpen}
-        onClose={() => setIsGrievanceTrackerOpen(false)}
-        initialGrievanceId={trackingGrievanceId}
-        onSelectProject={handleSelectProjectById}
-      />
-
-      {/* Schedule Field Inspection Modal */}
-      <ScheduleInspectionModal
-        isOpen={!!scheduleInspectionProject}
-        project={scheduleInspectionProject}
-        onClose={() => setScheduleInspectionProject(null)}
-        onInspectionScheduled={loadPortalData}
-      />
-
-      {/* Record Inspection Findings Modal */}
-      <RecordInspectionModal
-        isOpen={!!recordingInspection}
-        inspection={recordingInspection}
-        onClose={() => setRecordingInspection(null)}
-        onFindingsRecorded={loadPortalData}
-      />
-
-      {/* Official Government Portal Footer */}
-      <footer className="bg-slate-900 text-slate-400 text-xs mt-12 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-            <div>
-              <div className="text-white font-bold text-sm mb-2">MPLADS AI Integrity System</div>
-              <p className="text-[11px] leading-relaxed">
-                Central Sector Scheme for Members of Parliament Local Area Development Scheme. Official monitoring
-                portal under Ministry of Statistics and Programme Implementation (MoSPI).
-              </p>
-            </div>
-            <div>
-              <div className="text-white font-bold text-xs uppercase mb-2">Regulatory Reference</div>
-              <ul className="space-y-1 text-[11px]">
-                <li>MPLADS Guidelines (2010 Revision)</li>
-                <li>eSAKSHI Digital Public Infrastructure</li>
-                <li>District Magistrate Circulars</li>
-                <li>Technical Feasibility Norms</li>
-              </ul>
-            </div>
-            <div>
-              <div className="text-white font-bold text-xs uppercase mb-2">Integrity Protocols</div>
-              <ul className="space-y-1 text-[11px]">
-                <li>EXIF Metadata Verification</li>
-                <li>Haversine Geo-fence Proximity</li>
-                <li>Cost Outlier Z-Score Regression</li>
-                <li>Perceptual Image Hash Ledger</li>
-              </ul>
-            </div>
-            <div>
-              <div className="text-white font-bold text-xs uppercase mb-2">Security & Governance</div>
-              <p className="text-[11px] leading-relaxed">
-                Append-only immutable audit trail. All AI outputs are framed strictly as decision support requiring
-                human review by the District Authority.
-              </p>
-            </div>
+      {/* Official Government Footer */}
+      <footer className="bg-white border-t border-slate-border mt-auto py-4 px-6 text-xs text-slate-muted">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-body">{t.portalName}</span>
+            <span>•</span>
+            <span>{t.nicGov}</span>
           </div>
-
-          <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between text-[11px] gap-2">
-            <div>
-              Designed for transparency, accountability, and citizen oversight in parliamentary development expenditure.
-            </div>
-            <div className="text-slate-500">
-              Government of India • National Informatics Centre Standard
-            </div>
+          <div className="text-[11px] text-slate-muted">
+            {t.footerCompliance}
           </div>
         </div>
       </footer>
     </div>
+  );
+};
+
+export default function App() {
+  return (
+    <LanguageProvider>
+      <AuthProvider>
+        <MainAppContent />
+      </AuthProvider>
+    </LanguageProvider>
   );
 }

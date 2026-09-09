@@ -4,18 +4,77 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MPLADS AI Integrity & Monitoring System</title>
-    <meta name="description" content="A government-portal-style platform to monitor MPLADS projects, detect fund utilization and execution anomalies, verify GPS and photo EXIF, and enforce transparency and accountability." />
+    <meta name="description" content="Government monitoring portal for MPLADS developmental projects, detecting cost and duplicate anomalies, verifying geotagged photos, predicting delays, and ensuring role-based transparency." />
     <meta property="og:title" content="MPLADS AI Integrity & Monitoring System" />
-    <meta property="og:description" content="A government-portal-style platform to monitor MPLADS projects, detect fund utilization and execution anomalies, verify GPS and photo EXIF, and enforce transparency and accountability." />
+    <meta property="og:description" content="Government monitoring portal for MPLADS developmental projects, detecting cost and duplicate anomalies, verifying geotagged photos, predicting delays, and ensuring role-based transparency." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script>
+      // Self-correct GitHub Pages path to ensure trailing slash so relative assets (./assets/...) resolve properly
+      (function() {
+        var path = window.location.pathname;
+        if (window.location.hostname.endsWith('github.io') && !path.endsWith('/') && !path.includes('.')) {
+          window.location.replace(path + '/' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="margin: 0; padding: 0; background-color: #FFFFFF; font-family: 'Inter', 'Noto Sans', system-ui, -apple-system, sans-serif;">
+    <div id="root">
+      <!-- Pre-render Loading & Fail-Safe State (Replaced immediately when React mounts) -->
+      <div id="pre-render-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; background-color: #F7F9FC; color: #1F2933;">
+        <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 36px 32px; max-width: 440px; width: 100%; box-shadow: 0 4px 12px rgba(11, 61, 102, 0.06);">
+          <!-- Institutional Shield Icon -->
+          <div style="width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 10px; background: #0B3D66; display: flex; align-items: center; justify-content: center; color: white;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="m9 12 2 2 4-4"/>
+            </svg>
+          </div>
+          <div style="font-size: 11px; font-weight: 700; color: #0B3D66; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px;">
+            Government of India • MoSPI
+          </div>
+          <h1 style="font-size: 19px; font-weight: 700; margin: 0 0 10px; color: #0B3D66;">
+            MPLADS National Transparency Portal
+          </h1>
+          <p style="font-size: 14px; color: #5A6472; margin: 0 0 24px; line-height: 1.5;">
+            Retrieving development projects, fund allocations, and community work records...
+          </p>
+          
+          <!-- Animated Spinner -->
+          <div style="display: flex; justify-content: center; align-items: center; gap: 8px;">
+            <div style="width: 28px; height: 28px; border: 3px solid #E2E8F0; border-top-color: #0B3D66; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+          </div>
+          <style>
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
+
+          <!-- Guaranteed Fallback Option if scripts are delayed or blocked -->
+          <div id="loader-fallback-actions" style="display: none; margin-top: 24px; padding-top: 16px; border-top: 1px solid #E2E8F0;">
+            <p style="font-size: 13px; color: #B45309; margin-bottom: 12px; font-weight: 500;">
+              Taking longer than expected? Please verify your connection or reload.
+            </p>
+            <button onclick="localStorage.clear(); sessionStorage.clear(); window.location.reload();" style="background: #0B3D66; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;">
+              Reset Cache & Reload
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Display fallback reset option after 5 seconds if React hasn't replaced #root
+      setTimeout(function() {
+        var fallback = document.getElementById('loader-fallback-actions');
+        if (fallback) fallback.style.display = 'block';
+      }, 5000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

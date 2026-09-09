@@ -1,196 +1,381 @@
 import React from 'react';
-import { User } from '../types/index.ts';
+import { useAuth } from '../context/AuthContext.js';
+import { useLanguage } from '../context/LanguageContext.js';
+import { UserRole } from '../types/index.js';
 import {
-  LayoutDashboard,
-  FolderGit2,
-  Map,
+  Home,
+  FolderKanban,
   IndianRupee,
-  ShieldAlert,
-  MessageSquare,
-  ClipboardCheck,
-  FileText,
-  Briefcase,
-  History,
-  Bot,
-  Layers,
-  X
+  AlertTriangle,
+  ShieldCheck,
+  FileBarChart,
+  MessageCircleQuestion,
+  UserCog,
+  MapPin,
+  FilePlus2,
+  HardHat,
+  Building,
+  MessageSquareWarning,
+  ScrollText,
+  Network,
+  Calculator
 } from 'lucide-react';
 
-export type NavItemKey =
+export type NavTab =
   | 'dashboard'
   | 'projects'
+  | 'funds'
+  | 'alerts'
+  | 'anomalies'
+  | 'verification'
+  | 'reports'
+  | 'help'
+  | 'feedback'
   | 'map'
-  | 'financials'
-  | 'risk'
-  | 'grievances'
-  | 'inspections'
-  | 'documents'
+  | 'recommend'
+  | 'agency-workdesk'
   | 'vendors'
-  | 'audit'
-  | 'ai-lab'
-  | 'ai-assistant';
+  | 'audit-logs'
+  | 'network-fraud'
+  | 'data-ingestion';
+
+/**
+ * Single source of truth for tab access permissions across Sidebar navigation
+ * and App routing defense-in-depth gates.
+ */
+export const TAB_ALLOWED_ROLES: Record<string, (UserRole | 'PUBLIC')[]> = {
+  dashboard: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  projects: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  funds: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  alerts: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  anomalies: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  verification: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  reports: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  help: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  feedback: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  map: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+  recommend: ['MP', 'ADMIN'],
+  'agency-workdesk': ['AGENCY', 'ADMIN'],
+  vendors: ['ADMIN', 'MP'],
+  'network-fraud': ['ADMIN'],
+  'audit-logs': ['ADMIN'],
+  'data-ingestion': ['ADMIN', 'MP']
+};
 
 interface SidebarProps {
-  user: User | null;
-  activeItem: NavItemKey;
-  onNavigate: (item: NavItemKey) => void;
-  isOpenMobile: boolean;
-  onCloseMobile: () => void;
-  onOpenAiAssistant: () => void;
+  currentTab: NavTab | string;
+  onSelectTab: (tab: any) => void;
+  pendingAlertsCount?: number;
+  unreadFeedbackCount?: number;
+  isOpen?: boolean;
+  onClose?: () => void;
+  onNavigateToHome?: () => void;
+  onOpenLogin?: () => void;
+  onOpenHelp?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  user,
-  activeItem,
-  onNavigate,
-  isOpenMobile,
-  onCloseMobile,
-  onOpenAiAssistant
+  currentTab,
+  onSelectTab,
+  pendingAlertsCount = 0,
+  unreadFeedbackCount = 0,
+  isOpen = false,
+  onClose,
+  onNavigateToHome,
+  onOpenLogin,
+  onOpenHelp
 }) => {
-  const role = user?.role || 'citizen';
+  const { role } = useAuth();
+  const { t, translateRole, language } = useLanguage();
 
-  // Build role-specific menu items per specifications
-  const getNavItems = () => {
-    if (role === 'mp') {
-      return [
-        { key: 'dashboard' as NavItemKey, label: 'Dashboard', icon: LayoutDashboard },
-        { key: 'projects' as NavItemKey, label: 'Constituency Works', icon: FolderGit2 },
-        { key: 'map' as NavItemKey, label: 'GIS Project Map', icon: Map },
-        { key: 'financials' as NavItemKey, label: 'Financial Ledger', icon: IndianRupee },
-        { key: 'grievances' as NavItemKey, label: 'Citizen Grievances', icon: MessageSquare }
-      ];
+  interface NavItem {
+    id: NavTab;
+    label: string;
+    icon: any;
+    badge?: number;
+    badgeColor?: string;
+    roles: UserRole[];
+    section?: string;
+    isOfficerOnly?: boolean;
+  }
+
+  const navItems: NavItem[] = [
+    // Core Public & Oversight Navigation
+    {
+      id: 'dashboard',
+      label: t.home,
+      icon: Home,
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC']
+    },
+    {
+      id: 'projects',
+      label: t.projects,
+      icon: FolderKanban,
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC']
+    },
+    {
+      id: 'funds',
+      label: t.funds,
+      icon: IndianRupee,
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC']
+    },
+    {
+      id: 'alerts',
+      label: t.alerts,
+      icon: AlertTriangle,
+      badge: pendingAlertsCount,
+      badgeColor: 'bg-status-flagged',
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC']
+    },
+    {
+      id: 'verification',
+      label: t.verification,
+      icon: ShieldCheck,
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC']
+    },
+    {
+      id: 'reports',
+      label: t.reports,
+      icon: FileBarChart,
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC']
+    },
+    {
+      id: 'feedback',
+      label: t.feedback,
+      icon: MessageSquareWarning,
+      badge: unreadFeedbackCount,
+      badgeColor: 'bg-status-verified',
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC']
+    },
+
+    // Mapping
+    {
+      id: 'map',
+      label: t.gisMap,
+      icon: MapPin,
+      roles: ['MP', 'ADMIN', 'AGENCY', 'PUBLIC'],
+      section: t.mappingLocation
+    },
+
+    // Officer Operations
+    {
+      id: 'recommend',
+      label: t.recommendWork,
+      icon: FilePlus2,
+      roles: ['MP', 'ADMIN'],
+      section: t.officerOperations,
+      isOfficerOnly: true
+    },
+    {
+      id: 'agency-workdesk',
+      label: t.agencyBilling,
+      icon: HardHat,
+      roles: ['AGENCY', 'ADMIN'],
+      section: t.officerOperations,
+      isOfficerOnly: true
+    },
+    {
+      id: 'vendors',
+      label: t.contractorDirectory,
+      icon: Building,
+      roles: ['ADMIN', 'MP'],
+      section: t.officerOperations,
+      isOfficerOnly: true
+    },
+
+    // Forensic / Restricted Tools
+    {
+      id: 'network-fraud',
+      label: t.contractorGraph,
+      icon: Network,
+      roles: TAB_ALLOWED_ROLES['network-fraud'] as UserRole[],
+      section: t.restrictedTools,
+      isOfficerOnly: true
+    },
+    {
+      id: 'audit-logs',
+      label: t.auditTrail,
+      icon: ScrollText,
+      roles: TAB_ALLOWED_ROLES['audit-logs'] as UserRole[],
+      section: t.restrictedTools,
+      isOfficerOnly: true
+    },
+    {
+      id: 'data-ingestion',
+      label: t.dataIngestion,
+      icon: Calculator,
+      roles: TAB_ALLOWED_ROLES['data-ingestion'] as UserRole[],
+      section: t.restrictedTools,
+      isOfficerOnly: true
     }
+  ];
 
-    if (role === 'admin') {
-      return [
-        { key: 'dashboard' as NavItemKey, label: 'Dashboard', icon: LayoutDashboard },
-        { key: 'projects' as NavItemKey, label: 'Work Sanctions', icon: FolderGit2 },
-        { key: 'map' as NavItemKey, label: 'GIS District Map', icon: Map },
-        { key: 'financials' as NavItemKey, label: 'Financials', icon: IndianRupee },
-        { key: 'risk' as NavItemKey, label: 'Risk Monitoring', icon: ShieldAlert },
-        { key: 'grievances' as NavItemKey, label: 'Grievance Redressal', icon: MessageSquare },
-        { key: 'inspections' as NavItemKey, label: 'Field Inspections', icon: ClipboardCheck },
-        { key: 'documents' as NavItemKey, label: 'Project Documents', icon: FileText },
-        { key: 'vendors' as NavItemKey, label: 'Vendor Directory', icon: Briefcase },
-        { key: 'audit' as NavItemKey, label: 'Audit Logs', icon: History }
-      ];
+  // Filter items according to role
+  const visibleItems = navItems.filter(item => {
+    if (role === 'PUBLIC') {
+      return !item.isOfficerOnly && item.roles.includes('PUBLIC');
     }
+    return item.roles.includes(role);
+  });
 
-    if (role === 'agency') {
-      return [
-        { key: 'dashboard' as NavItemKey, label: 'Dashboard', icon: LayoutDashboard },
-        { key: 'projects' as NavItemKey, label: 'Assigned Works', icon: FolderGit2 },
-        { key: 'map' as NavItemKey, label: 'Site GIS Map', icon: Map },
-        { key: 'financials' as NavItemKey, label: 'Progress & MB', icon: ClipboardCheck },
-        { key: 'documents' as NavItemKey, label: 'Documents & UC', icon: FileText },
-        { key: 'inspections' as NavItemKey, label: 'Inspections', icon: Layers },
-        { key: 'grievances' as NavItemKey, label: 'Issues & Reports', icon: MessageSquare }
-      ];
-    }
+  let lastSection = '';
 
-    // Default: Public / Citizen
-    return [
-      { key: 'dashboard' as NavItemKey, label: 'Overview & KPIs', icon: LayoutDashboard },
-      { key: 'projects' as NavItemKey, label: 'Works Directory', icon: FolderGit2 },
-      { key: 'map' as NavItemKey, label: 'Geographic Map', icon: Map },
-      { key: 'financials' as NavItemKey, label: 'Parliamentary Ledger', icon: IndianRupee },
-      { key: 'grievances' as NavItemKey, label: 'Citizen Vigilance', icon: MessageSquare },
-      { key: 'vendors' as NavItemKey, label: 'Implementing Agencies', icon: Briefcase },
-      { key: 'ai-lab' as NavItemKey, label: 'AI Integrity Lab', icon: ShieldAlert }
-    ];
-  };
+  const sidebarContent = (
+    <aside className="w-64 bg-white text-slate-body flex flex-col shrink-0 border-r border-slate-border min-h-[calc(100vh-4.5rem)] shadow-xs">
+      {/* Portal Context Banner */}
+      <div className="px-4 py-3 bg-panel-bg border-b border-slate-border">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-govt-navy">
+            {role === 'PUBLIC' ? t.publicView : (language === 'hi' ? 'अधिकारी कार्यक्षेत्र' : 'Officer Workspace')}
+          </div>
+          {role === 'PUBLIC' && (
+            <span className="w-2 h-2 rounded-full bg-status-verified" title={t.publicCitizenModeActive} />
+          )}
+        </div>
+        <p className="text-[11px] text-slate-muted mt-0.5">
+          {role === 'PUBLIC'
+            ? (language === 'hi' ? 'नागरिक निगरानी एवं ट्रैकिंग' : 'Open citizen oversight & tracking')
+            : `${language === 'hi' ? 'प्रमाणित:' : 'Authenticated as'} ${translateRole(role)}`}
+        </p>
+      </div>
 
-  const navItems = getNavItems();
+      {/* Navigation List */}
+      <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
+        {onNavigateToHome && (
+          <button
+            onClick={() => {
+              onNavigateToHome();
+              onClose?.();
+            }}
+            className="w-full mb-3 flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-govt-navy bg-panel-bg hover:bg-white border border-slate-border transition-colors cursor-pointer"
+          >
+            <Home className="w-4 h-4 text-govt-navy shrink-0" strokeWidth={2} />
+            <span className="truncate">{t.returnToHome}</span>
+          </button>
+        )}
 
-  const handleItemClick = (key: NavItemKey) => {
-    onNavigate(key);
-    onCloseMobile();
-  };
+        {visibleItems.map(item => {
+          const Icon = item.icon;
+          const isActive =
+            currentTab === item.id ||
+            (item.id === 'alerts' && (currentTab === 'anomalies' || currentTab === 'alerts')) ||
+            (item.id === 'recommend' && currentTab === 'recommendations') ||
+            (item.id === 'agency-workdesk' && currentTab === 'agency') ||
+            (item.id === 'feedback' && currentTab === 'grievances') ||
+            (item.id === 'audit-logs' && currentTab === 'audit');
+
+          const showSectionHeader = item.section && item.section !== lastSection;
+          if (item.section) lastSection = item.section;
+
+          return (
+            <React.Fragment key={item.id}>
+              {showSectionHeader && (
+                <div className="pt-3 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-muted">
+                  {item.section}
+                </div>
+              )}
+
+              <button
+                id={`nav-link-${item.id}`}
+                onClick={() => {
+                  onSelectTab(item.id);
+                  onClose?.();
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-govt-navy text-white font-semibold shadow-xs'
+                    : 'text-slate-body hover:bg-panel-bg hover:text-govt-navy'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Icon
+                    className={`w-4 h-4 shrink-0 ${
+                      isActive ? 'text-govt-saffron' : 'text-slate-muted'
+                    }`}
+                    strokeWidth={2}
+                  />
+                  <span className="truncate">{item.label}</span>
+                </div>
+
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span
+                    className={`ml-2 px-1.5 py-0.2 rounded-full text-[10px] font-bold text-white shrink-0 ${
+                      item.badgeColor || 'bg-status-flagged'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            </React.Fragment>
+          );
+        })}
+
+        {/* Dedicated Chatbot Trigger */}
+        <button
+          id="nav-link-help-chatbot"
+          onClick={() => {
+            if (onOpenHelp) {
+              onOpenHelp();
+            } else {
+              window.dispatchEvent(new CustomEvent('open-citizen-chatbot'));
+            }
+            onClose?.();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-medium text-slate-body hover:bg-panel-bg hover:text-govt-navy transition-all cursor-pointer mt-2"
+        >
+          <MessageCircleQuestion className="w-4 h-4 text-slate-muted shrink-0" strokeWidth={2} />
+          <span className="truncate">{t.help}</span>
+        </button>
+      </nav>
+
+      {/* Officer Login Link for Public Mode */}
+      {role === 'PUBLIC' && onOpenLogin && (
+        <div className="p-3 border-t border-slate-border bg-panel-bg">
+          <button
+            onClick={() => {
+              onOpenLogin();
+              onClose?.();
+            }}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-panel-bg text-govt-navy border border-slate-border shadow-2xs transition-colors cursor-pointer"
+          >
+            <UserCog className="w-4 h-4 text-govt-saffron shrink-0" strokeWidth={2} />
+            <span>{t.officerLogin}</span>
+          </button>
+          <div className="text-[10px] text-slate-muted text-center mt-1.5">
+            {language === 'hi' ? 'ज़िला कलेक्टर एवं सांसद लॉगिन' : 'District Collectors & MP login'}
+          </div>
+        </div>
+      )}
+
+      {/* Ministry Compliance Badge */}
+      <div className="p-3 m-3 bg-panel-bg rounded-xl border border-slate-border text-[11px] text-slate-muted">
+        <div className="text-[10px] text-govt-navy uppercase tracking-wider font-bold mb-1">
+          {language === 'hi' ? 'सरकारी मानक' : 'Government Standards'}
+        </div>
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="w-2 h-2 bg-status-verified rounded-full" />
+          <span className="text-xs font-semibold text-slate-body">MoSPI 2023 Guidelines</span>
+        </div>
+        <div className="text-[10px] text-slate-muted leading-relaxed">
+          {t.mpladsFullName}
+        </div>
+      </div>
+    </aside>
+  );
 
   return (
     <>
-      {/* Mobile Backdrop */}
-      {isOpenMobile && (
-        <div
-          onClick={onCloseMobile}
-          className="fixed inset-0 bg-slate-900/40 z-40 lg:hidden"
-        />
+      {/* Desktop Persistent Sidebar */}
+      <div className="hidden lg:block shrink-0">{sidebarContent}</div>
+
+      {/* Mobile Off-canvas Drawer */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          <div className="fixed inset-0 bg-govt-navy-dark/60 backdrop-blur-xs" onClick={onClose} />
+          <div className="relative z-10 flex">{sidebarContent}</div>
+        </div>
       )}
-
-      {/* Sidebar Container */}
-      <aside
-        className={`fixed top-14 bottom-0 left-0 z-40 w-56 bg-white border-r border-slate-200 flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 ${
-          isOpenMobile ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {/* Mobile Header in Drawer */}
-        <div className="p-3 border-b border-slate-100 flex items-center justify-between lg:hidden">
-          <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-            Navigation Menu
-          </span>
-          <button
-            type="button"
-            onClick={onCloseMobile}
-            className="p-1 text-slate-500 hover:text-slate-700"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Role Scope Indicator */}
-        <div className="px-3.5 py-3 border-b border-slate-100 bg-slate-50/50">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-            Current Portal View
-          </div>
-          <div className="text-xs font-bold text-slate-900 truncate mt-0.5">
-            {role === 'mp'
-              ? `MP Console • ${user?.constituency}`
-              : role === 'admin'
-              ? `District Authority • ${user?.district || 'Central'}`
-              : role === 'agency'
-              ? 'Executing Agency'
-              : 'Public Transparency Portal'}
-          </div>
-        </div>
-
-        {/* Navigation Items */}
-        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeItem === item.key;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => handleItemClick(item.key)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded transition-colors text-left ${
-                  isActive
-                    ? 'bg-blue-900 text-white font-bold'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`} />
-                <span className="truncate">{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Persistent AI Assistant Launcher at bottom of sidebar */}
-        <div className="p-2 border-t border-slate-200">
-          <button
-            type="button"
-            onClick={() => {
-              onOpenAiAssistant();
-              onCloseMobile();
-            }}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 transition-colors"
-          >
-            <Bot className="w-4 h-4 text-blue-800" />
-            <span>AI Assistant</span>
-          </button>
-        </div>
-      </aside>
     </>
   );
 };

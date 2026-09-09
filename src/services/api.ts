@@ -1,576 +1,377 @@
 import {
   Project,
-  Alert,
+  RiskAlert,
   CitizenFeedback,
   AuditLogEntry,
   User,
-  VendorAnalytics,
-  PhotoVerificationResult,
-  ProjectInspection,
-  ProjectDocument,
-  SystemNotification
-} from '../types/index.ts';
-import { INITIAL_NOTIFICATIONS } from '../backend/data/seedInspectionsAndDocuments.ts';
+  DashboardSummary,
+  AppNotification
+} from '../types/index.js';
+import { AuthService, authStorage } from './authService.js';
+import { clientMockDb } from './clientMockDb.js';
 
-const TOKEN_KEY = 'mplads_auth_token';
-const USER_KEY = 'mplads_auth_user';
+export { AuthService, authStorage };
 
-// In-memory fallback if localStorage is unavailable or blocked in iframe sandbox
-const memoryStore: Record<string, string> = {};
-
-function safeStorageGet(key: string): string | null {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      return window.localStorage.getItem(key);
-    }
-  } catch (err) {
-    // Access denied or blocked in iframe
+async function handleNodeTestFallback(url: string, options: RequestInit = {}): Promise<any> {
+  const [path, queryString] = url.split('?');
+  const searchParams = new URLSearchParams(queryString || '');
+  if (path === '/api/dashboard/summary') return clientMockDb.getDashboardSummary();
+  if (path === '/api/projects') {
+    return clientMockDb.getProjects({
+      status: searchParams.get('status') || undefined,
+      category: searchParams.get('category') || undefined,
+      district: searchParams.get('district') || undefined,
+      riskLevel: searchParams.get('riskLevel') || undefined,
+      search: searchParams.get('search') || undefined
+    });
   }
-  return memoryStore[key] || null;
+  if (path === '/api/alerts') {
+    return clientMockDb.getAlerts({
+      status: searchParams.get('status') || undefined,
+      riskLevel: searchParams.get('riskLevel') || undefined
+    });
+  }
+  if (path === '/api/citizen-feedback') return clientMockDb.getCitizenFeedback();
+  if (path === '/api/notifications') return clientMockDb.getNotifications();
+  return { success: true };
 }
 
-function safeStorageSet(key: string, val: string): void {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(key, val);
-    }
-  } catch (err) {
-    // Access denied or blocked in iframe
+async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  // In Node.js test runner where window is undefined and fetch does not have a relative origin
+  if (typeof window === 'undefined') {
+    return handleNodeTestFallback(url, options);
   }
-  memoryStore[key] = val;
-}
 
-function safeStorageRemove(key: string): void {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem(key);
-    }
-  } catch (err) {
-    // Access denied or blocked in iframe
-  }
-  delete memoryStore[key];
-}
+  const token = authStorage.getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {})
+  };
 
-export function getStoredToken(): string | null {
-  return safeStorageGet(TOKEN_KEY);
-}
-
-export function getStoredUser(): User | null {
-  const str = safeStorageGet(USER_KEY);
-  if (!str) return null;
-  try {
-    return JSON.parse(str);
-  } catch {
-    return null;
-  }
-}
-
-function getHeaders(isJson = true) {
-  const headers: Record<string, string> = {};
-  if (isJson) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const token = getStoredToken();
-  if (token) {
+  if (token && !url.includes('/api/auth/login')) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  return headers;
-}
 
-export async function loginUser(userId: string, password: string): Promise<{ token: string; user: User }> {
-  const res = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, password })
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Failed to authenticate');
-  }
-
-  safeStorageSet(TOKEN_KEY, data.token);
-  safeStorageSet(USER_KEY, JSON.stringify(data.user));
-  return data;
-}
-
-export async function logoutUser(): Promise<void> {
-  const token = getStoredToken();
-  if (token) {
-    try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: getHeaders()
-      });
-    } catch {
-      // Ignore network errors on logout
+  const response = await fetch(url, { ...options, headers });
+  if (!response.ok) {
+    if ((response.status === 401 || response.status === 403) && !url.includes('/api/auth/login')) {
+      authStorage.removeToken();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:unauthorized', { detail: { status: response.status } }));
+      }
     }
+    const errorData = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(errorData.error || `HTTP ${response.status}`);
   }
-  safeStorageRemove(TOKEN_KEY);
-  safeStorageRemove(USER_KEY);
+  return response.json();
 }
 
-export async function fetchPublicStats(): Promise<{
-  allocatedLimit: number;
-  worksRecommended: number;
-  worksSanctioned: number;
-  worksCompleted: number;
-  worksOngoing: number;
-  totalExpenditure: number;
-  sanctionedExpenditure: number;
-  updatedAt: string;
-}> {
-  const res = await fetch('/api/stats/public');
-  if (!res.ok) throw new Error('Failed to fetch public stats');
-  return res.json();
-}
+export const api = {
+  // Auth
+  login: AuthService.login,
+  getMe: AuthService.getMe,
+  logout: AuthService.logout,
 
-export async function fetchMpStats(): Promise<any[]> {
-  const res = await fetch('/api/stats/mps');
-  if (!res.ok) throw new Error('Failed to fetch MP statistics');
-  const data = await res.json();
-  return data.mps || [];
-}
+  // Dashboard
+  getDashboardSummary: async (): Promise<DashboardSummary> => {
+    try {
+      const summary = await fetchWithAuth('/api/dashboard/summary');
+      if (summary && typeof summary === 'object' && 'totalProjects' in summary) {
+        return summary;
+      }
+      throw new Error('Invalid summary format');
+    } catch (err) {
+      console.warn('[api.getDashboardSummary] Error fetching summary, returning operational defaults:', err);
+      return {
+        totalProjects: 0,
+        completedProjects: 0,
+        activeProjects: 0,
+        delayedProjects: 0,
+        underReviewProjects: 0,
+        recommendedProjects: 0,
+        totalFundsSanctioned: 0,
+        totalFundsUtilized: 0,
+        highRiskProjectsCount: 0,
+        costAnomaliesCount: 0,
+        possibleDuplicatesCount: 0,
+        photoAnomaliesCount: 0,
+        locationMismatchesCount: 0,
+        delayRisksCount: 0,
+        totalPendingReviews: 0
+      };
+    }
+  },
 
-export async function fetchProjects(filters?: Record<string, string>): Promise<Project[]> {
-  const params = new URLSearchParams();
-  if (filters) {
-    Object.entries(filters).forEach(([k, v]) => {
-      if (v && v !== 'All') params.append(k, v);
-    });
-  }
+  // Projects
+  getProjects: async (filters?: {
+    status?: string;
+    category?: string;
+    district?: string;
+    riskLevel?: string;
+    search?: string;
+  }): Promise<{ projects: Project[]; count: number }> => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'All') params.set('status', filters.status);
+    if (filters?.category && filters.category !== 'All') params.set('category', filters.category);
+    if (filters?.district && filters.district !== 'All') params.set('district', filters.district);
+    if (filters?.riskLevel && filters.riskLevel !== 'All') params.set('riskLevel', filters.riskLevel);
+    if (filters?.search) params.set('search', filters.search);
 
-  const url = `/api/projects?${params.toString()}`;
-  const res = await fetch(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch projects');
-  const data = await res.json();
-  return data.projects || [];
-}
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchWithAuth(`/api/projects${query}`);
+  },
 
-export async function fetchProjectById(id: string): Promise<Project> {
-  const res = await fetch(`/api/projects/${id}`, { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch project details');
-  const data = await res.json();
-  return data.project;
-}
+  getProjectById: async (id: string): Promise<{ project: Project; duplicateCandidates?: any[] }> => {
+    return fetchWithAuth(`/api/projects/${id}`);
+  },
 
-export async function recommendNewWork(payload: {
-  title: string;
-  description: string;
-  category: string;
-  estimatedCost: number;
-  latitude: number;
-  longitude: number;
-  locationAddress: string;
-}): Promise<Project> {
-  const res = await fetch('/api/projects', {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to submit recommendation');
-  return data.project;
-}
-
-export async function updateProjectStatus(
-  id: string,
-  payload: {
-    status: string;
-    sanctionedCost?: number;
-    agencyId?: string;
-    agencyName?: string;
-    vendorName?: string;
-    notes?: string;
-  }
-): Promise<Project> {
-  const res = await fetch(`/api/projects/${id}/status`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update project status');
-  return data.project;
-}
-
-export async function updateProjectProgress(
-  id: string,
-  payload: { percentage: number; description: string }
-): Promise<Project> {
-  const res = await fetch(`/api/projects/${id}/progress`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update progress');
-  return data.project;
-}
-
-export async function recordProjectExpenditure(
-  id: string,
-  payload: { amount: number; installmentNo?: number; sanctionOrderNo?: string }
-): Promise<Project> {
-  const res = await fetch(`/api/projects/${id}/expenditure`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to record expenditure');
-  return data.project;
-}
-
-export async function verifyPhotoUpload(
-  formDataOrBase64: FormData | { imageBase64: string; projectId: string; stage?: string; notes?: string }
-): Promise<PhotoVerificationResult> {
-  let res: globalThis.Response;
-  if (formDataOrBase64 instanceof FormData) {
-    const token = getStoredToken();
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    res = await fetch('/api/verify/photo', {
+  recommendProject: async (projectData: Partial<Project>): Promise<{ success: boolean; project: Project }> => {
+    return fetchWithAuth('/api/projects/recommend', {
       method: 'POST',
-      headers,
-      body: formDataOrBase64
+      body: JSON.stringify(projectData)
     });
-  } else {
-    res = await fetch('/api/verify/photo', {
+  },
+
+  updateProjectStatus: async (
+    id: string,
+    status: string,
+    sanctionedAmount?: number,
+    remarks?: string
+  ): Promise<{ success: boolean; project: Project }> => {
+    return fetchWithAuth(`/api/projects/${id}/status`, {
       method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(formDataOrBase64)
+      body: JSON.stringify({ status, sanctionedAmount, remarks })
+    });
+  },
+
+  assignAgency: async (
+    id: string,
+    data: {
+      agencyId: string;
+      agencyName: string;
+      vendorName?: string;
+      startDate?: string;
+      expectedCompletionDate?: string;
+    }
+  ): Promise<{ success: boolean; project: Project }> => {
+    return fetchWithAuth(`/api/projects/${id}/assign-agency`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  updateProgress: async (
+    id: string,
+    data: {
+      completionPercentage?: number;
+      fundsUtilized?: number;
+      remarks?: string;
+      photoUrl?: string;
+      photoStage?: string;
+      photoCaption?: string;
+      photoLat?: number;
+      photoLon?: number;
+    }
+  ): Promise<{ success: boolean; project: Project }> => {
+    return fetchWithAuth(`/api/projects/${id}/progress`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  addPayment: async (
+    id: string,
+    data: { amount: number; sanctionOrderNo?: string; remarks?: string }
+  ): Promise<{ success: boolean; payment: any; project: Project }> => {
+    return fetchWithAuth(`/api/projects/${id}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  // Alerts
+  getAlerts: async (params?: { status?: string; riskLevel?: string }): Promise<{ alerts: RiskAlert[]; count: number }> => {
+    try {
+      const searchParams = new URLSearchParams();
+      if (params?.status && params.status !== 'All') searchParams.set('status', params.status);
+      if (params?.riskLevel && params.riskLevel !== 'All') searchParams.set('riskLevel', params.riskLevel);
+      const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+
+      const res = await fetchWithAuth(`/api/alerts${query}`);
+      if (res && Array.isArray(res.alerts)) {
+        return res;
+      }
+      return { alerts: [], count: 0 };
+    } catch (err) {
+      console.warn('[api.getAlerts] Error fetching alerts, returning empty list:', err);
+      return { alerts: [], count: 0 };
+    }
+  },
+
+  updateAlertStatus: async (
+    id: string,
+    status: string,
+    reviewNotes?: string
+  ): Promise<{ success: boolean; alert: RiskAlert }> => {
+    return fetchWithAuth(`/api/alerts/${id}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ status, reviewNotes })
+    });
+  },
+
+  // Notifications
+  getNotifications: async (): Promise<{ notifications: AppNotification[]; count: number; unreadCount?: number }> => {
+    try {
+      const res = await fetchWithAuth('/api/notifications');
+      if (res && Array.isArray(res.notifications)) {
+        return res;
+      }
+      return { notifications: [], count: 0, unreadCount: 0 };
+    } catch (err) {
+      console.warn('[api.getNotifications] Error fetching notifications:', err);
+      return { notifications: [], count: 0, unreadCount: 0 };
+    }
+  },
+
+  markAsRead: async (id: string): Promise<{ success: boolean; message?: string }> => {
+    return fetchWithAuth(`/api/notifications/${id}/read`, { method: 'POST' });
+  },
+
+  markNotificationRead: async (id: string): Promise<{ success: boolean; message?: string }> => {
+    return api.markAsRead(id);
+  },
+
+  markAllNotificationsRead: async (): Promise<{ success: boolean; count?: number }> => {
+    return fetchWithAuth('/api/notifications/read-all', { method: 'POST' });
+  },
+
+  resetNotifications: async (): Promise<{ success: boolean; notifications: AppNotification[]; count?: number; unreadCount?: number }> => {
+    return fetchWithAuth('/api/notifications/reset', { method: 'POST' });
+  },
+
+  // Vendors
+  getVendors: async (): Promise<{ vendors: any[] }> => {
+    return fetchWithAuth('/api/analytics/vendors');
+  },
+
+  // Citizen Feedback
+  getCitizenFeedback: async (): Promise<{ feedback: CitizenFeedback[]; count: number }> => {
+    try {
+      const res = await fetchWithAuth('/api/citizen-feedback');
+      if (res && Array.isArray(res.feedback)) {
+        return res;
+      }
+      return { feedback: [], count: 0 };
+    } catch (err) {
+      console.warn('[api.getCitizenFeedback] Error fetching feedback:', err);
+      return { feedback: [], count: 0 };
+    }
+  },
+
+  submitCitizenFeedback: async (data: any): Promise<{ success: boolean; feedbackId: string }> => {
+    return fetchWithAuth('/api/citizen-feedback', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  updateFeedbackStatus: async (id: string, status: string, adminNotes?: string): Promise<{ success: boolean }> => {
+    return fetchWithAuth(`/api/citizen-feedback/${id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status, adminNotes })
+    });
+  },
+
+  // Audit Logs
+  getAuditLogs: async (): Promise<{ auditLogs: AuditLogEntry[]; count: number }> => {
+    return fetchWithAuth('/api/audit-logs');
+  },
+
+  verifyAuditLogsIntegrity: async (): Promise<{
+    isValid: boolean;
+    verifiedCount: number;
+    brokenAtId?: string;
+    algorithm: string;
+    genesisHash: string;
+    verifiedAt: string;
+  }> => {
+    return fetchWithAuth('/api/audit-logs/verify');
+  },
+
+  simulateTamper: async (): Promise<{ success: boolean; result: any; message: string }> => {
+    return fetchWithAuth('/api/audit-logs/simulate-tamper', {
+      method: 'POST'
+    });
+  },
+
+  restoreAuditLogs: async (): Promise<{ success: boolean }> => {
+    return fetchWithAuth('/api/audit-logs/restore', {
+      method: 'POST'
+    });
+  },
+
+  // Advanced Evidence Verification
+  verifyEvidence: async (data: {
+    projectId?: string;
+    mediaData: string;
+    photoUrl?: string;
+    clientLat?: number;
+    clientLon?: number;
+    isVideo?: boolean;
+    gpsThresholdMeters?: number;
+  }): Promise<{ success: boolean; verification: any }> => {
+    return fetchWithAuth('/api/evidence/verify', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  // AI Report (Gemini API / Heuristic)
+  generateAiAuditReport: async (projectId: string): Promise<{ report: string; projectCode: string; title: string }> => {
+    return fetchWithAuth(`/api/ai/audit-report/${projectId}`, {
+      method: 'POST'
+    });
+  },
+
+  // Public Transparency
+  getPublicSummary: async (): Promise<any> => {
+    return fetchWithAuth('/api/public/summary');
+  },
+
+  getPublicProjects: async (): Promise<{ projects: Project[]; count: number }> => {
+    return fetchWithAuth('/api/public/projects');
+  },
+
+  // Contractor Network Fraud Analysis
+  getContractorNetwork: async (): Promise<any> => {
+    return fetchWithAuth('/api/network/contractors');
+  },
+
+  // Multilingual RAG Citizen Chatbot
+  queryChatbot: async (query: string, language?: string): Promise<any> => {
+    return fetchWithAuth('/api/chat/query', {
+      method: 'POST',
+      body: JSON.stringify({ query, language })
+    });
+  },
+
+  // NLP Feedback Intelligence
+  analyzeGrievanceFeedback: async (data: { feedbackId?: string; subject: string; description: string; projectId?: string }): Promise<any> => {
+    return fetchWithAuth('/api/nlp/analyze-feedback', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  // Data Ingestion & Impact Calculator
+  getImpactSummary: async (): Promise<any> => {
+    return fetchWithAuth('/api/impact/summary');
+  },
+
+  ingestData: async (csvContent: string, sourceLabel?: string): Promise<any> => {
+    return fetchWithAuth('/api/data/ingest', {
+      method: 'POST',
+      body: JSON.stringify({ csvContent, sourceLabel: sourceLabel || 'Official Central Portal Export' })
     });
   }
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Photo verification failed');
-  return data.verification;
-}
-
-export async function fetchTestPhotoSamples(): Promise<{
-  targetProject: { id: string; workId: string; title: string; latitude: number; longitude: number };
-  samples: Array<{
-    id: string;
-    name: string;
-    description: string;
-    result: PhotoVerificationResult;
-  }>;
-}> {
-  const res = await fetch('/api/verify/test-samples');
-  if (!res.ok) throw new Error('Failed to fetch sample verification tests');
-  return res.json();
-}
-
-export async function fetchAlerts(): Promise<Alert[]> {
-  const token = getStoredToken();
-  if (!token) return [];
-  try {
-    const res = await fetch('/api/alerts', { headers: getHeaders() });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.alerts || [];
-  } catch {
-    return [];
-  }
-}
-
-export async function reviewAlert(
-  id: string,
-  payload: { status: string; reviewNotes: string }
-): Promise<Alert> {
-  const res = await fetch(`/api/alerts/${id}/review`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update alert');
-  return data.alert;
-}
-
-export async function fetchVendorAnalytics(): Promise<VendorAnalytics[]> {
-  const token = getStoredToken();
-  if (!token) return [];
-  try {
-    const res = await fetch('/api/analytics/vendors', { headers: getHeaders() });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.vendors || [];
-  } catch {
-    return [];
-  }
-}
-
-export async function fetchVendorByName(name: string): Promise<VendorAnalytics> {
-  const res = await fetch(`/api/analytics/vendors/${encodeURIComponent(name)}`, { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch vendor details');
-  const data = await res.json();
-  return data.vendor;
-}
-
-export async function fetchFeedback(projectId?: string): Promise<CitizenFeedback[]> {
-  const token = getStoredToken();
-  if (!token) return [];
-  try {
-    const url = projectId ? `/api/feedback?projectId=${projectId}` : '/api/feedback';
-    const res = await fetch(url, { headers: getHeaders() });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.feedback || [];
-  } catch {
-    return [];
-  }
-}
-
-export async function submitCitizenFeedback(payload: {
-  projectId: string;
-  issueType: string;
-  citizenName: string;
-  contactEmail?: string;
-  comments: string;
-  photoUrl?: string;
-}): Promise<CitizenFeedback> {
-  const res = await fetch('/api/feedback', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to submit grievance');
-  return data.feedback;
-}
-
-export async function fetchAuditLogs(projectId?: string): Promise<AuditLogEntry[]> {
-  const url = projectId ? `/api/audit-logs?projectId=${projectId}` : '/api/audit-logs';
-  const res = await fetch(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch audit logs');
-  const data = await res.json();
-  return data.logs || [];
-}
-
-export async function queryAiAssistant(query: string): Promise<{
-  answer: string;
-  sourceCount: number;
-  role: string;
-  suggestedFollowups?: string[];
-}> {
-  const res = await fetch('/api/ai/assistant', {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify({ query })
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'AI Assistant service unavailable');
-  return data;
-}
-
-export async function fetchInspections(projectId?: string): Promise<ProjectInspection[]> {
-  const url = projectId ? `/api/inspections?projectId=${projectId}` : '/api/inspections';
-  const res = await fetch(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch inspections');
-  const data = await res.json();
-  return data.inspections || [];
-}
-
-export async function scheduleInspection(payload: {
-  projectId: string;
-  scheduledDate: string;
-  inspectingOfficer?: string;
-  officerDesignation?: string;
-}): Promise<ProjectInspection> {
-  const res = await fetch('/api/inspections', {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to schedule inspection');
-  return data.inspection;
-}
-
-export async function recordInspectionFindings(
-  id: string,
-  payload: {
-    result: string;
-    observations: string;
-    recommendations: string;
-    checklist?: any[];
-    photos?: string[];
-    complianceNotes?: string;
-  }
-): Promise<ProjectInspection> {
-  const res = await fetch(`/api/inspections/${id}`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to record inspection findings');
-  return data.inspection;
-}
-
-export async function fetchProjectDocuments(projectId: string): Promise<ProjectDocument[]> {
-  const res = await fetch(`/api/projects/${projectId}/documents`, { headers: getHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch documents');
-  const data = await res.json();
-  return data.documents || [];
-}
-
-export async function uploadProjectDocument(
-  projectId: string,
-  payload: {
-    documentType: string;
-    title: string;
-    fileName?: string;
-    fileUrl?: string;
-    fileSize?: string;
-    notes?: string;
-  }
-): Promise<ProjectDocument> {
-  const res = await fetch(`/api/projects/${projectId}/documents`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to upload document');
-  return data.document;
-}
-
-export async function verifyProjectDocument(
-  id: string,
-  payload: { verificationStatus: 'Verified' | 'Flagged' | 'Pending'; notes?: string }
-): Promise<ProjectDocument> {
-  const res = await fetch(`/api/documents/${id}/verify`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to verify document');
-  return data.document;
-}
-
-export async function trackGrievance(grievanceId: string): Promise<{
-  grievance: CitizenFeedback;
-  project?: {
-    workId: string;
-    title: string;
-    category: string;
-    status: string;
-    state: string;
-    district: string;
-    mpName: string;
-  };
-}> {
-  const res = await fetch(`/api/feedback/track/${encodeURIComponent(grievanceId)}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Grievance record not found');
-  return data;
-}
-
-export async function updateGrievanceStatus(
-  id: string,
-  payload: {
-    status: string;
-    assignedOfficer?: string;
-    investigationRemarks?: string;
-    actionTaken?: string;
-  }
-): Promise<CitizenFeedback> {
-  const res = await fetch(`/api/feedback/${id}/status`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update grievance status');
-  return data.feedback;
-}
-
-export async function fetchNotifications(): Promise<SystemNotification[]> {
-  const CACHE_KEY = 'mplads_cached_notifications';
-
-  // Try fetching with auto-retry in case dev server is restarting or network glitched
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch('/api/notifications', { headers: getHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.notifications || [];
-        safeStorageSet(CACHE_KEY, JSON.stringify(list));
-        return list;
-      }
-    } catch {
-      if (attempt === 0) {
-        // Wait 400ms before retry
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      }
-    }
-  }
-
-  // Gracefully fallback to cached notifications or initial seed
-  const cached = safeStorageGet(CACHE_KEY);
-  if (cached) {
-    try {
-      const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    } catch {
-      // ignore JSON parse error
-    }
-  }
-
-  return INITIAL_NOTIFICATIONS;
-}
-
-export async function markNotificationRead(id: string): Promise<void> {
-  const CACHE_KEY = 'mplads_cached_notifications';
-  try {
-    const cached = safeStorageGet(CACHE_KEY);
-    if (cached) {
-      try {
-        const list = JSON.parse(cached);
-        if (Array.isArray(list)) {
-          const updated = list.map((n: SystemNotification) => (n.id === id ? { ...n, isRead: true } : n));
-          safeStorageSet(CACHE_KEY, JSON.stringify(updated));
-        }
-      } catch {
-        // ignore
-      }
-    }
-    await fetch(`/api/notifications/${id}/read`, { method: 'PUT', headers: getHeaders() });
-  } catch {
-    // Graceful offline handling
-  }
-}
-
-export async function markAllNotificationsRead(): Promise<void> {
-  const CACHE_KEY = 'mplads_cached_notifications';
-  try {
-    const cached = safeStorageGet(CACHE_KEY);
-    if (cached) {
-      try {
-        const list = JSON.parse(cached);
-        if (Array.isArray(list)) {
-          const updated = list.map((n: SystemNotification) => ({ ...n, isRead: true }));
-          safeStorageSet(CACHE_KEY, JSON.stringify(updated));
-        }
-      } catch {
-        // ignore
-      }
-    }
-    await fetch('/api/notifications/read-all', { method: 'PUT', headers: getHeaders() });
-  } catch {
-    // Graceful offline handling
-  }
-}
-
+};

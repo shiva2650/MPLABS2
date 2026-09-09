@@ -1,15 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Project } from '../types/index.js';
 import L from 'leaflet';
-import { Project } from '../types/index.ts';
-import { MapPin, Layers } from 'lucide-react';
 
-interface GisMapProps {
+interface GISMapProps {
   projects: Project[];
   onSelectProject: (project: Project) => void;
   selectedProjectId?: string;
 }
 
-export const GisMap: React.FC<GisMapProps> = ({
+export const GISMap: React.FC<GISMapProps> = ({
   projects,
   onSelectProject,
   selectedProjectId
@@ -18,228 +17,212 @@ export const GisMap: React.FC<GisMapProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // Initialize Leaflet Map once
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [selectedStatus, setSelectedStatus] = useState<string>('All');
+  const [filterRiskOnly, setFilterRiskOnly] = useState<boolean>(false);
+
+  // Initialize Map
   useEffect(() => {
-    const container = mapContainerRef.current;
-    if (!container) return;
+    if (!mapContainerRef.current) return;
 
-    try {
-      // If container was already tagged by Leaflet during strict mode re-mount, clean it
-      if ((container as any)._leaflet_id) {
-        delete (container as any)._leaflet_id;
-      }
-
-      if (!mapInstanceRef.current) {
-        // Centered over India by default
-        const map = L.map(container, {
-          center: [20.5937, 78.9629],
-          zoom: 5,
-          zoomControl: true,
-          attributionControl: true
-        });
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '&copy; OpenStreetMap contributors | MPLADS GIS'
-        }).addTo(map);
-
-        const markersGroup = L.layerGroup().addTo(map);
-        markersLayerRef.current = markersGroup;
-        mapInstanceRef.current = map;
-      }
-    } catch (err) {
-      console.warn('Leaflet map initialization skipped or handled:', err);
-    }
-
-    return () => {
-      // Map cleanup on unmount
-      if (mapInstanceRef.current) {
-        try {
-          mapInstanceRef.current.remove();
-        } catch {
-          // ignore cleanup errors
-        }
-        mapInstanceRef.current = null;
-      }
-      if (container && (container as any)._leaflet_id) {
-        delete (container as any)._leaflet_id;
-      }
-    };
-  }, []);
-
-  // Update Markers whenever projects change
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    const markersGroup = markersLayerRef.current;
-    if (!map || !markersGroup) return;
-
-    try {
-      markersGroup.clearLayers();
-
-      const bounds: L.LatLngExpression[] = [];
-
-      projects.forEach((proj) => {
-        if (!proj.latitude || !proj.longitude) return;
-
-        const lat = Number(proj.latitude);
-        const lng = Number(proj.longitude);
-        if (isNaN(lat) || isNaN(lng)) return;
-
-        bounds.push([lat, lng]);
-
-        // Determine marker color
-        let color = '#3B82F6'; // Blue (Ongoing)
-        let border = '#1D4ED8';
-
-        if (proj.status === 'Completed') {
-          color = '#10B981'; // Green
-          border = '#047857';
-        } else if (proj.riskLevel === 'Critical' || proj.riskLevel === 'High') {
-          color = '#EF4444'; // Red
-          border = '#B91C1C';
-        } else if (proj.status === 'Delayed' || proj.delayPrediction?.status === 'Delayed') {
-          color = '#F59E0B'; // Amber
-          border = '#B45309';
-        } else if (proj.status === 'Recommended' || proj.status === 'Under Review') {
-          color = '#64748B'; // Gray
-          border = '#334155';
-        }
-
-        const isSelected = proj.id === selectedProjectId;
-
-        // Custom HTML Marker Pin
-        const icon = L.divIcon({
-          className: 'custom-gis-pin',
-          html: `
-            <div style="
-              width: ${isSelected ? '28px' : '22px'};
-              height: ${isSelected ? '28px' : '22px'};
-              background-color: ${color};
-              border: 2px solid ${isSelected ? '#FFFFFF' : border};
-              border-radius: 50%;
-              box-shadow: 0 2px 6px rgba(0,0,0,0.35);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: white;
-              font-size: 10px;
-              font-weight: bold;
-              transition: transform 0.2s ease;
-              transform: ${isSelected ? 'scale(1.2)' : 'scale(1)'};
-            ">
-              <span>●</span>
-            </div>
-          `,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12]
-        });
-
-        const marker = L.marker([lat, lng], { icon });
-
-        // Clean Government Style Popup
-        const costStr = proj.sanctionedCost ? `₹${(proj.sanctionedCost / 100000).toFixed(1)} L` : (proj.estimatedCost ? `₹${(proj.estimatedCost / 100000).toFixed(1)} L (Est.)` : 'N/A');
-        const popupHtml = `
-          <div style="font-family: inherit; font-size: 12px; min-width: 220px; padding: 4px;">
-            <div style="font-size: 10px; font-weight: 700; color: #1e3a8a; text-transform: uppercase;">
-              ${proj.workId}
-            </div>
-            <div style="font-size: 13px; font-weight: 700; color: #111827; margin: 3px 0;">
-              ${proj.title}
-            </div>
-            <div style="color: #4b5563; margin-bottom: 6px; font-size: 11px;">
-              ${proj.locationAddress || `${proj.district}, ${proj.state}`}
-            </div>
-            <div style="display: flex; justify-content: space-between; border-top: 1px solid #e5e7eb; padding-top: 5px; margin-bottom: 6px;">
-              <div>
-                <span style="color: #6b7280; font-size: 10px;">Cost</span>
-                <div style="font-weight: 700; color: #1e3a8a;">${costStr}</div>
-              </div>
-              <div>
-                <span style="color: #6b7280; font-size: 10px;">Status</span>
-                <div style="font-weight: 700; color: ${color};">${proj.status}</div>
-              </div>
-            </div>
-            <button
-              id="view-btn-${proj.id}"
-              style="
-                width: 100%;
-                background-color: #1e3a8a;
-                color: white;
-                font-weight: 700;
-                padding: 5px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 11px;
-              "
-            >
-              Inspect Project File
-            </button>
-          </div>
-        `;
-
-        marker.bindPopup(popupHtml);
-
-        marker.on('popupopen', () => {
-          const btn = document.getElementById(`view-btn-${proj.id}`);
-          if (btn) {
-            btn.onclick = () => onSelectProject(proj);
-          }
-        });
-
-        marker.addTo(markersGroup);
+    if (!mapInstanceRef.current) {
+      // Default centered on Hyderabad / Telangana coordinates (17.41, 78.49)
+      const map = L.map(mapContainerRef.current, {
+        center: [17.41, 78.49],
+        zoom: 11,
+        zoomControl: true,
+        attributionControl: false
       });
 
-      if (bounds.length > 0) {
-        try {
-          map.fitBounds(bounds as any, { padding: [40, 40], maxZoom: 13 });
-        } catch (fitErr) {
-          console.warn('Map fitBounds handled:', fitErr);
-        }
-      }
-    } catch (markerErr) {
-      console.warn('Marker rendering handled:', markerErr);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      const markersGroup = L.layerGroup().addTo(map);
+      markersLayerRef.current = markersGroup;
+      mapInstanceRef.current = map;
     }
-  }, [projects, selectedProjectId]);
+
+    const timer = setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize();
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Update Markers when projects or filters change
+  useEffect(() => {
+    if (!mapInstanceRef.current || !markersLayerRef.current) return;
+
+    markersLayerRef.current.clearLayers();
+
+    let filtered = projects;
+    if (selectedCategory !== 'All') {
+      filtered = filtered.filter(p => p.category === selectedCategory);
+    }
+    if (selectedStatus !== 'All') {
+      filtered = filtered.filter(p => p.status === selectedStatus);
+    }
+    if (filterRiskOnly) {
+      filtered = filtered.filter(p => p.riskAnalysis.overallScore > 50);
+    }
+
+    const bounds = L.latLngBounds([]);
+
+    filtered.forEach(project => {
+      if (!project) return;
+      const lat = project.latitude;
+      const lon = project.longitude;
+
+      if (!lat || !lon) return;
+
+      bounds.extend([lat, lon]);
+
+      // Determine marker color based on status and risk
+      let markerColor = '#0F5C3C'; // Primary Green (Ongoing)
+      if (project.status === 'Completed') markerColor = '#1E7B34'; // Status-verified
+      else if (project.status === 'Delayed' || project.riskAnalysis.riskLevel === 'CRITICAL') markerColor = '#B91C1C'; // Red (Delayed/Critical)
+      else if (project.riskAnalysis.overallScore > 60) markerColor = '#B45309'; // Amber (High Risk)
+      else if (project.status === 'Recommended') markerColor = '#5A6472'; // Slate (Recommended)
+
+      // Create Custom SVG Pin
+      const customIcon = L.divIcon({
+        className: 'custom-gis-pin',
+        html: `
+          <div style="
+            background-color: ${markerColor};
+            width: 28px;
+            height: 28px;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            border: 2px solid #ffffff;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          ">
+            <span style="
+              transform: rotate(45deg);
+              color: #ffffff;
+              font-size: 10px;
+              font-weight: bold;
+              font-family: monospace;
+            ">
+              ${project.completionPercentage}%
+            </span>
+          </div>
+        `,
+        iconSize: [28, 28],
+        iconAnchor: [14, 28],
+        popupAnchor: [0, -28]
+      });
+
+      const marker = L.marker([lat, lon], { icon: customIcon });
+
+      const popupContent = document.createElement('div');
+      popupContent.className = 'p-1 font-sans text-xs';
+      popupContent.innerHTML = `
+        <div style="font-family: monospace; font-size: 10px; color: #5A6472; font-weight: 600;">${project.projectCode}</div>
+        <div style="font-weight: 700; font-size: 13px; color: #1F2933; margin-top: 2px; line-height: 1.2;">${project.title}</div>
+        <div style="margin-top: 4px; color: #5A6472; font-size: 11px;">
+          <strong>District:</strong> ${project.district} | <strong>Category:</strong> ${project.category}
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 6px; font-size: 11px; color: #1F2933;">
+          <div>Cost: <strong>₹${(project.sanctionedAmount / 100000).toFixed(1)}L</strong></div>
+          <div>Progress: <strong>${project.completionPercentage}%</strong></div>
+          <div>Risk: <span style="font-weight:bold; color:${project.riskAnalysis.overallScore > 60 ? '#DC2626' : '#059669'}">${project.riskAnalysis.riskLevel} (${project.riskAnalysis.overallScore})</span></div>
+        </div>
+        <button id="view-prj-${project.id}" style="
+          margin-top: 8px;
+          width: 100%;
+          padding: 6px 10px;
+          background-color: #0F5C3C;
+          color: #FFFFFF;
+          border: none;
+          border-radius: 6px;
+          font-weight: 700;
+          cursor: pointer;
+          font-size: 11px;
+        ">
+          View Complete Project Audit
+        </button>
+      `;
+
+      // Handle button click inside Leaflet popup
+      popupContent.querySelector(`#view-prj-${project.id}`)?.addEventListener('click', () => {
+        onSelectProject(project);
+      });
+
+      marker.bindPopup(popupContent);
+      markersLayerRef.current?.addLayer(marker);
+    });
+
+    if (filtered.length > 0 && bounds.isValid()) {
+      mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    }
+  }, [projects, selectedCategory, selectedStatus, filterRiskOnly]);
+
+  const categories = ['All', 'Drinking Water & Sanitation', 'Education & Schools', 'Renewable Energy', 'Roads, Bridges & Pathways', 'Healthcare & Wellness'];
+  const statuses = ['All', 'Ongoing', 'Completed', 'Delayed', 'Sanctioned', 'Recommended'];
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-2xs mb-6 overflow-hidden">
-      <div className="p-3.5 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-gray-50/50">
-        <div className="flex items-center gap-2">
-          <MapPin className="w-4 h-4 text-blue-900" />
-          <h3 className="text-sm font-extrabold text-gray-900">
-            Interactive GIS Asset Location Map
-          </h3>
-          <span className="text-xs text-gray-500">
-            ({projects.length} Geo-tagged works plotted)
-          </span>
+    <div className="relative w-full h-[600px] bg-panel-bg rounded-2xl border border-slate-border overflow-hidden shadow-inner flex flex-col">
+      {/* Top Filter Floating Bar */}
+      <div className="absolute top-3 left-3 right-3 z-10 bg-white/95 backdrop-blur-xs rounded-xl shadow-md border border-slate-border p-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-bold text-slate-body">Category:</span>
+          <select
+            value={selectedCategory}
+            onChange={e => setSelectedCategory(e.target.value)}
+            className="px-2.5 py-1.5 bg-panel-bg border border-slate-border rounded-lg text-xs text-slate-body font-medium focus:ring-2 focus:ring-govt-navy focus:outline-hidden"
+          >
+            {categories.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          <span className="font-bold text-slate-body ml-2">Status:</span>
+          <select
+            value={selectedStatus}
+            onChange={e => setSelectedStatus(e.target.value)}
+            className="px-2.5 py-1.5 bg-panel-bg border border-slate-border rounded-lg text-xs text-slate-body font-medium focus:ring-2 focus:ring-govt-navy focus:outline-hidden"
+          >
+            {statuses.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
+          <label className="flex items-center gap-1.5 ml-2 cursor-pointer font-bold text-status-flagged">
+            <input
+              type="checkbox"
+              checked={filterRiskOnly}
+              onChange={e => setFilterRiskOnly(e.target.checked)}
+              className="rounded text-status-flagged focus:ring-status-flagged"
+            />
+            <span>High Risk / Delayed Only</span>
+          </label>
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 text-[11px] font-semibold text-gray-600 flex-wrap">
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <span>Completed</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-            <span>Ongoing</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-            <span>Delayed / At Risk</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-            <span>AI Risk Anomaly</span>
-          </div>
+        <div className="hidden lg:flex items-center gap-3 text-[11px] text-slate-muted">
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-status-verified inline-block" /> Completed
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-govt-navy inline-block" /> Ongoing
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-status-flagged inline-block" /> Delayed / Anomaly
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-muted inline-block" /> Recommended
+          </span>
         </div>
       </div>
 
-      <div
-        ref={mapContainerRef}
-        className="w-full h-[400px] z-10 bg-slate-100"
-      />
+      {/* Map Container */}
+      <div ref={mapContainerRef} className="w-full h-full" />
     </div>
   );
 };

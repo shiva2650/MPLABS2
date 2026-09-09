@@ -1,22 +1,17 @@
-/**
- * Core Domain Types for MPLADS AI Integrity & Monitoring System
- */
-
-export type UserRole = 'mp' | 'admin' | 'agency' | 'citizen';
+export type UserRole = 'MP' | 'ADMIN' | 'AGENCY' | 'PUBLIC' | 'SUPER_ADMIN' | 'PROJECT_MANAGER' | 'VIEWER';
 
 export interface User {
   id: string;
   userId: string;
   name: string;
   role: UserRole;
-  email: string;
-  house?: HouseType;
-  state?: string;
-  district?: string;
+  designation: string;
   constituency?: string;
+  district?: string;
   agencyId?: string;
   agencyName?: string;
-  designation?: string;
+  email?: string;
+  phone?: string;
 }
 
 export type ProjectStatus =
@@ -29,209 +24,7 @@ export type ProjectStatus =
   | 'Completed'
   | 'Rejected';
 
-export type RiskLevel = 'Low' | 'Moderate' | 'Elevated' | 'High' | 'Critical' | 'Medium';
-
-export type HouseType = 'Lok Sabha' | 'Rajya Sabha';
-
-export type ProjectCategory =
-  | 'Drinking Water'
-  | 'Education'
-  | 'Health & Sanitation'
-  | 'Roads & Bridges'
-  | 'Community Halls'
-  | 'Irrigation & Flood Control'
-  | 'Renewable Energy'
-  | 'Sports & Youth Development'
-  | 'Other Public Utilities';
-
-export type PhotoStage = 'Before-Work' | 'During-Work' | 'After-Completion' | 'Pre-Work' | 'Completed';
-
-export interface MilestoneProgress {
-  id: string;
-  percentage: number;
-  description: string;
-  updatedAt: string;
-  updatedBy: string;
-  photoUrl?: string;
-  verifiedGps?: boolean;
-}
-
-export interface ProjectPhoto {
-  id: string;
-  url: string;
-  stage: 'Pre-Work' | 'During-Work' | 'Completed';
-  uploadedAt: string;
-  uploadedBy: string;
-  fileName: string;
-  exifStatus: 'Verified' | 'Mismatch' | 'Unverifiable' | 'Suspicious';
-  exifGps?: { lat: number; lng: number };
-  distanceMeters?: number;
-  device?: string;
-  software?: string;
-  pHash?: string;
-  notes?: string;
-}
-
-export interface ProjectPayment {
-  id: string;
-  installmentNo: number;
-  amount: number; // in INR (Rupees)
-  sanctionOrderNo: string;
-  date: string;
-  status: 'Released' | 'Pending' | 'Rejected';
-  utilizationCertSubmitted: boolean;
-}
-
-export type DocumentType =
-  | 'Sanction Order'
-  | 'Work Order'
-  | 'Administrative Approval'
-  | 'Technical Approval'
-  | 'Bill'
-  | 'Inspection Report'
-  | 'Completion Certificate'
-  | 'Utilization Certificate';
-
-export interface ProjectDocument {
-  id: string;
-  projectId: string;
-  workId: string;
-  documentType: DocumentType;
-  title: string;
-  fileUrl: string;
-  fileName: string;
-  fileSize?: string;
-  uploadedBy: string;
-  uploadedRole: UserRole;
-  uploadedAt: string;
-  verificationStatus: 'Pending' | 'Verified' | 'Flagged';
-  verifiedBy?: string;
-  verifiedAt?: string;
-  notes?: string;
-}
-
-export type InspectionResult = 'Satisfactory' | 'Minor Issues' | 'Major Issues' | 'Critical Issues' | 'Pending';
-
-export interface InspectionChecklistItem {
-  item: string;
-  status: 'Pass' | 'Fail' | 'Partial' | 'N/A' | 'Satisfactory' | 'Issue';
-  notes?: string;
-}
-
-export interface ProjectInspection {
-  id: string;
-  projectId: string;
-  workId: string;
-  projectTitle: string;
-  district: string;
-  state: string;
-  inspectingOfficer: string;
-  officerDesignation: string;
-  scheduledDate: string;
-  inspectionDate?: string;
-  status: 'Scheduled' | 'Completed' | 'Cancelled';
-  result: InspectionResult;
-  checklist: InspectionChecklistItem[];
-  observations: string;
-  recommendations: string;
-  complianceNotes?: string;
-  photos: string[];
-  recordedAt?: string;
-}
-
-export type TimelineStage =
-  | 'Proposed'
-  | 'Recommended'
-  | 'Approved'
-  | 'Sanctioned'
-  | 'Work Started'
-  | 'In Progress'
-  | 'Inspection'
-  | 'Completed';
-
-export interface ProjectTimelineEvent {
-  id: string;
-  stage: TimelineStage;
-  date: string;
-  actor: string;
-  actorRole: string;
-  notes: string;
-}
-
-export interface Project {
-  id: string;
-  workId: string;
-  title: string;
-  description: string;
-  category: ProjectCategory;
-  sector: string;
-  house: HouseType;
-  mpId: string;
-  mpName: string;
-  state: string;
-  district: string;
-  constituency: string;
-  financialYear: string;
-  
-  // Financials (in Rupees)
-  estimatedCost: number;
-  sanctionedCost: number;
-  utilizedCost: number;
-  
-  status: ProjectStatus;
-  
-  // Location & Execution
-  latitude: number;
-  longitude: number;
-  locationAddress: string;
-  agencyId: string;
-  agencyName: string;
-  vendorName: string;
-  
-  // Dates
-  recommendedDate: string;
-  sanctionDate?: string;
-  agencyAssignedDate?: string;
-  expectedCompletionDate?: string;
-  actualCompletionDate?: string;
-  
-  completionPercentage: number;
-  
-  // AI Decision-Support Metrics (Deterministic 0-100)
-  riskScore: number; // 0-100
-  riskLevel: RiskLevel;
-  riskReason: string;
-  riskReasons?: string[]; // Detailed individual risk factors
-  costAnomaly?: {
-    isAnomaly: boolean;
-    zScore: number;
-    baselineMean: number;
-    baselineStdDev: number;
-    reason: string;
-  };
-  delayPrediction?: {
-    status: 'On Track' | 'At Risk' | 'Delayed';
-    estimatedDelayDays: number;
-    confidenceRange: string;
-    modelType: string;
-  };
-  duplicateFlag?: {
-    isSuspected: boolean;
-    matchedProjectId?: string;
-    similarityScore?: number;
-    reason?: string;
-  };
-
-  photos: ProjectPhoto[];
-  payments: ProjectPayment[];
-  progressLogs: MilestoneProgress[];
-  documents?: ProjectDocument[];
-  inspections?: ProjectInspection[];
-  timeline?: ProjectTimelineEvent[];
-  
-  createdAt: string;
-  updatedAt: string;
-}
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export type AlertType =
   | 'High Risk'
@@ -239,178 +32,312 @@ export type AlertType =
   | 'Delay Risk'
   | 'Possible Duplicate'
   | 'Photo Anomaly'
-  | 'Location Mismatch'
-  | 'Financial Discrepancy'
-  | 'Inspection Defect';
+  | 'Location Mismatch';
 
 export type AlertStatus =
-  | 'Open'
+  | 'New'
   | 'Under Review'
-  | 'Valid'
   | 'False Positive'
-  | 'Needs More Info'
   | 'Escalated'
   | 'Resolved';
 
-export interface Alert {
+export interface ProjectPhoto {
   id: string;
-  projectId: string;
-  workId: string;
-  projectTitle: string;
-  state: string;
-  district: string;
-  type: AlertType;
-  riskLevel: RiskLevel;
-  reason: string;
-  evidence: string;
-  status: AlertStatus;
-  assignedOfficer: string;
-  reviewNotes?: string;
-  reviewedBy?: string;
-  reviewedAt?: string;
-  createdAt: string;
+  stage: 'before' | 'during' | 'after';
+  url: string;
+  caption: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  latitude?: number;
+  longitude?: number;
+  isAiVerified: boolean;
+  aiVerificationNotes?: string;
+  similarityAlert?: boolean;
+  perceptualHash?: string;
+  exifTimestamp?: string;
+  verificationStatus?: 'VERIFIED' | 'UNVERIFIABLE' | 'LOCATION_MISMATCH' | 'DUPLICATE_REUSE' | 'PENDING';
+  distanceFromSiteMeters?: number;
+  gpsDistanceMeters?: number; // alias for distanceFromSiteMeters
+  isGpsVerified?: boolean;
+  cameraMakeModel?: string;
+  cameraModel?: string; // alias for cameraMakeModel
+  duplicateMatchDetails?: {
+    matchedProjectId: string;
+    matchedProjectCode: string;
+    matchedPhotoId: string;
+    similarityPercentage: number;
+    hammingDistance?: number;
+  };
 }
 
-export type IssueType =
-  | 'incomplete work'
-  | 'wrong location'
-  | 'asset not found'
-  | 'damaged asset'
-  | 'Substandard Construction Quality'
-  | 'Financial Irregularity'
-  | 'other';
-
-export type GrievanceWorkflowStatus =
-  | 'Submitted'
-  | 'Under Review'
-  | 'Assigned'
-  | 'Investigation'
-  | 'Under Investigation'
-  | 'Action Taken'
-  | 'Resolved'
-  | 'Dismissed'
-  | 'Pending';
-
-export interface CitizenFeedback {
+export interface ProjectDocument {
   id: string;
-  grievanceId?: string; // e.g. MPLADS-GRV-2024-001042
-  projectId: string;
-  workId: string;
-  projectTitle: string;
-  issueType: IssueType;
-  citizenName: string;
-  contactEmail?: string;
-  contactPhone?: string;
-  comments: string;
-  photoUrl?: string;
-  photoVerification?: {
-    status: 'Verified' | 'Mismatch' | 'Unverifiable';
-    distanceMeters?: number;
+  name: string;
+  type: 'Recommendation' | 'Sanction Order' | 'Bill' | 'Payment Voucher' | 'Completion Certificate' | 'Other';
+  fileSize: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  downloadUrl: string;
+  isConfidential?: boolean;
+}
+
+export interface ProjectPayment {
+  id: string;
+  installmentNo: number;
+  amount: number; // in INR
+  sanctionOrderNo: string;
+  paidAt: string;
+  status: 'Requested' | 'Approved' | 'Disbursed';
+  beneficiaryAgency: string;
+  remarks?: string;
+}
+
+export interface AiRiskAnalysis {
+  overallScore: number; // 0-100
+  riskLevel: RiskLevel;
+  lastEvaluatedAt: string;
+  costAnomalyScore: number; // 0-100
+  duplicateProbability: number; // 0-100
+  photoAnomalyScore: number; // 0-100
+  locationMismatch: boolean;
+  delayProbability: number; // 0-100
+  delayRiskScore?: number; // alias for delayProbability
+  duplicateRiskScore?: number; // alias for duplicateProbability
+  photoReuseScore?: number; // alias for photoAnomalyScore
+  reasons: string[];
+  recommendations: string[];
+  disclaimer: string;
+  // Rigorous statistical baseline & confidence metrics (Areas 1 & 3)
+  costBaseline?: {
+    mean: number;
+    cohortMean?: number;
+    stdDev: number;
+    cohortStdDev?: number;
+    zScore: number;
+    cohortSize: number;
+    category: string;
+    state: string;
+    zThreshold: number;
+    isAnomaly: boolean;
+    reason: string;
   };
-  assignedOfficer?: string;
-  investigationRemarks?: string;
-  actionTaken?: string;
-  status: GrievanceWorkflowStatus;
+  delayMetrics?: {
+    delayDays: number;
+    confidenceScore: number; // e.g. 78%
+    marginOfErrorDays: number; // e.g. 14 days
+    confidenceInterval: string; // "78% confidence, ± 14 days"
+    confidenceIntervalString?: string; // alias
+    modelTrainingStatus: string; // "Model trained on synthetic data — validation pending"
+    holdoutValidation?: {
+      precision: number;
+      recall: number;
+      f1Score: number;
+      accuracy: number;
+      sampleSize: number;
+    };
+  };
+}
+
+export interface Project {
+  id: string;
+  projectCode: string;
+  workId?: string; // alias for projectCode
+  title: string;
+  description: string;
+  category: string;
+  mpId: string;
+  mpName: string;
+  constituency: string;
+  district: string;
+  state: string;
+  locationAddress: string;
+  latitude: number;
+  longitude: number;
+  estimatedCost: number; // in INR (e.g., 2500000 = 25 Lakh)
+  sanctionedAmount: number;
+  fundsUtilized: number;
+  implementingAgencyId: string;
+  implementingAgencyName: string;
+  vendorName: string;
+  vendorPanMasked: string;
+  recommendationDate: string;
+  sanctionDate: string;
+  startDate: string;
+  expectedCompletionDate: string;
+  actualCompletionDate?: string;
+  status: ProjectStatus;
+  completionPercentage: number;
+  riskAnalysis: AiRiskAnalysis;
+  photos: ProjectPhoto[];
+  documents: ProjectDocument[];
+  payments: ProjectPayment[];
+  timeline: {
+    stage: string;
+    completed: boolean;
+    date?: string;
+    remarks?: string;
+  }[];
+}
+
+export interface RiskAlert {
+  id: string;
+  projectId: string;
+  projectCode: string;
+  projectTitle: string;
+  district: string;
+  mpName: string;
+  agencyName: string;
+  alertType: AlertType;
+  riskLevel: RiskLevel;
+  reason: string;
+  technicalDetails?: string;
   createdAt: string;
+  status: AlertStatus;
+  assignedOfficer?: string;
+  reviewNotes?: string;
   resolvedAt?: string;
 }
 
-export interface SystemNotification {
+export interface DuplicateProjectCandidate {
+  primaryProject: Project;
+  candidateProject: Project;
+  similarityScore: number; // 0 - 100%
+  distanceMeters: number;
+  matchingFactors: string[];
+}
+
+export interface CitizenFeedback {
   id: string;
-  title: string;
-  message: string;
-  type: 'high_risk' | 'delay' | 'financial_anomaly' | 'grievance' | 'inspection_due' | 'missing_document' | 'photo_failure';
-  priority: 'Critical' | 'High' | 'Medium' | 'Info' | 'high' | 'medium' | 'info';
-  projectId?: string;
-  workId?: string;
-  targetRole?: UserRole | 'citizen';
-  targetUserId?: string;
-  isRead: boolean;
-  timestamp: string;
-  createdAt?: string;
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  district: string;
+  citizenName: string;
+  citizenContactMasked?: string;
+  issueType: 'Incomplete Work' | 'Incorrect Location' | 'Project Not Found' | 'Damaged Asset' | 'Poor Quality' | 'Other';
+  description: string;
+  photoUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  submittedAt: string;
+  status: 'New' | 'Under Review' | 'Verified' | 'Resolved' | 'Rejected';
+  adminNotes?: string;
 }
 
 export interface AuditLogEntry {
   id: string;
-  projectId: string;
-  workId: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
   action: string;
-  actorId: string;
-  actorName: string;
-  actorRole: UserRole;
-  fieldChanged: string;
-  previousValue: string;
-  newValue: string;
+  targetEntity: string;
+  targetId: string;
   timestamp: string;
-  ipAddress?: string;
+  previousValue?: string;
+  newValue?: string;
+  ipAddressMasked: string;
+  entryHash?: string;
+  prevHash?: string;
 }
 
-export interface PhotoVerificationResult {
-  status: 'Verified' | 'Mismatch' | 'Unverifiable' | 'Suspicious';
-  distanceMeters: number | null;
-  thresholdMeters: number;
-  extractedCoordinates: { lat: number; lng: number } | null;
-  targetCoordinates: { lat: number; lng: number };
-  timestamp: string | null;
-  cameraMake: string | null;
-  cameraModel: string | null;
-  software: string | null;
-  isEditedOrAiGenerated: boolean;
-  perceptualHash: string;
-  isDuplicateImage: boolean;
-  duplicateMatchProjectId?: string;
-  reasons: string[];
-}
-
-export interface VendorRiskEvent {
-  id: string;
-  projectId: string;
-  workId: string;
-  projectTitle: string;
-  type: string;
-  riskLevel: RiskLevel;
-  date: string;
-  description: string;
-  evidence?: string;
-  status: string;
-}
-
-export interface VendorProjectSummary {
-  id: string;
-  workId: string;
+export interface EvidenceAuditFlag {
+  category: 'PHOTO' | 'VIDEO' | 'GPS' | 'CONTENT' | 'METADATA';
+  code: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   title: string;
-  category: string;
-  agencyName?: string;
-  status: ProjectStatus;
-  sanctionedCost: number;
-  utilizedCost: number;
-  completionPercentage: number;
-  delayDays: number;
-  riskLevel: RiskLevel;
-  riskScore: number;
-  locationAddress: string;
+  reason: string;
+  confidence: number;
+  metadata?: Record<string, any>;
 }
 
-export interface VendorAnalytics {
-  vendorName: string;
-  agencyName: string;
-  secondaryAgencies?: string[];
-  sectors: string[];
-  totalProjects: number;
-  activeProjects: number;
-  completedProjects: number;
-  delayedProjects: number;
-  highRiskProjects: number;
-  totalValue: number;
-  utilizedValue: number;
-  completionRate: number;
-  delayRate: number;
-  avgCompletionDelayDays: number; // average completion delay in days
-  avgCompletionDays: number;
-  avgRiskScore: number;
-  riskLevel: RiskLevel;
-  suitabilityStatus: 'Recommended' | 'Proceed with Caution' | 'High Risk / Review Required';
-  suitabilityReason: string;
-  aiRiskHistory: VendorRiskEvent[];
-  projects: VendorProjectSummary[];
+export interface EvidenceVerificationResult {
+  integrityScore: number;
+  isApproved: boolean;
+  requiresManualReview: boolean;
+  flags: EvidenceAuditFlag[];
+  exifData: {
+    hasExif: boolean;
+    latitude?: number;
+    longitude?: number;
+    timestamp?: string;
+    cameraMake?: string;
+    cameraModel?: string;
+    software?: string;
+    isStrippedOrMissing: boolean;
+  };
+  perceptualHash: {
+    aHash: string;
+    dHash: string;
+    duplicateMatch?: {
+      matchedProjectId: string;
+      matchedPhotoId: string;
+      hammingDistance: number;
+    };
+  };
+  tamperAnalysis: {
+    isTampered: boolean;
+    elaVariance: number;
+    noiseInconsistencyScore: number;
+    editingSoftwareDetected?: string;
+  };
+  gpsVerification: {
+    distanceFromSiteMeters: number;
+    isWithinThreshold: boolean;
+    isSpoofedPattern: boolean;
+    isWithinConstituency: boolean;
+    calculatedTravelSpeedKmh?: number;
+    isImpossibleTravel?: boolean;
+  };
+  contentVerification: {
+    categoryMatches: boolean;
+    detectedInfrastructureType: string;
+    isAiGenerated: boolean;
+    aiConfidence: number;
+    analysisNotes: string;
+  };
 }
+
+export interface DashboardSummary {
+  totalProjects: number;
+  completedProjects: number;
+  activeProjects: number;
+  delayedProjects: number;
+  underReviewProjects: number;
+  recommendedProjects: number;
+  totalFundsSanctioned: number;
+  totalFundsUtilized: number;
+  highRiskProjectsCount: number;
+  costAnomaliesCount: number;
+  possibleDuplicatesCount: number;
+  photoAnomaliesCount: number;
+  locationMismatchesCount: number;
+  delayRisksCount: number;
+  totalPendingReviews: number;
+}
+
+export const CATEGORY_COST_BENCHMARKS: Record<string, { min: number; max: number; typical: number; unitDescription: string }> = {
+  'Community Infrastructure': { min: 1500000, max: 2500000, typical: 2000000, unitDescription: 'Standard plinth community center (2000-3000 sq ft)' },
+  'Drinking Water & Sanitation': { min: 1200000, max: 2000000, typical: 1600000, unitDescription: '2000 LPH RO water filtration plant or OHSR unit' },
+  'Education & Schools': { min: 1800000, max: 3000000, typical: 2400000, unitDescription: 'Govt high school modernization & digital classroom package' },
+  'Renewable Energy': { min: 2500000, max: 4000000, typical: 3200000, unitDescription: '50-100 high-mast solar LED poles or 50kWp rooftop solar' },
+  'Healthcare & Wellness': { min: 2500000, max: 4500000, typical: 3500000, unitDescription: 'Primary health sub-centre or mobile ambulance life support unit' },
+  'Roads, Bridges & Pathways': { min: 1500000, max: 2800000, typical: 2200000, unitDescription: 'Cement concrete road with cover drains (approx. 500m)' },
+  'Child & Women Welfare': { min: 1000000, max: 1800000, typical: 1400000, unitDescription: 'Anganwadi building or SHG training facility' },
+  'Skill Development & IT': { min: 1500000, max: 2500000, typical: 2000000, unitDescription: '40-terminal IT computer lab with UPS & networking' },
+  'Public Safety & Security': { min: 3000000, max: 5000000, typical: 4000000, unitDescription: '100+ CCTV camera network and control room integration' },
+  'Sports & Recreation': { min: 1200000, max: 2200000, typical: 1700000, unitDescription: 'Open outdoor gym with 12 equipment pedestals & walking track' }
+};
+
+export interface AppNotification {
+  id: string;
+  userId?: string;
+  targetRole?: UserRole | 'ALL';
+  title: string;
+  message: string;
+  type: 'ALERT' | 'FINANCE' | 'INSPECTION' | 'SYSTEM' | 'RECOMMENDATION';
+  read: boolean;
+  readBy?: string[];
+  createdAt: string;
+  link?: string;
+}
+

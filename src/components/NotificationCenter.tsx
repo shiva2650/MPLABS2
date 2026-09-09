@@ -1,201 +1,306 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Bell,
-  CheckCircle,
+  CheckCheck,
+  RotateCcw,
   AlertTriangle,
+  FileCheck2,
+  DollarSign,
+  ShieldCheck,
   Info,
   Clock,
-  ExternalLink,
-  CheckCheck,
-  X
+  ExternalLink
 } from 'lucide-react';
-import { SystemNotification } from '../types/index.ts';
-import {
-  fetchNotifications,
-  markNotificationRead,
-  markAllNotificationsRead
-} from '../services/api.ts';
+import { api } from '../services/api.js';
+import { AppNotification } from '../types/index.js';
+import { useAuth } from '../context/AuthContext.js';
+import { useLanguage } from '../context/LanguageContext.js';
 
 interface NotificationCenterProps {
-  onSelectProject?: (projectId: string) => void;
+  onNavigateToAlerts?: () => void;
+  onNavigateToProjects?: () => void;
 }
 
-export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onSelectProject }) => {
-  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+export const NotificationCenter: React.FC<NotificationCenterProps> = ({
+  onNavigateToAlerts,
+  onNavigateToProjects
+}) => {
+  const { user, role } = useAuth();
+  const { t, formatDate, translateRole } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [resetting, setResetting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const loadNotifications = async () => {
+  const fetchNotifications = async () => {
     try {
       setLoading(true);
-      const data = await fetchNotifications();
-      if (Array.isArray(data)) {
-        setNotifications(data);
+      const res = await api.getNotifications();
+      if (res && Array.isArray(res.notifications)) {
+        setNotifications(res.notifications);
       }
     } catch (err) {
-      console.warn('Unable to load remote notifications, keeping current state:', err);
+      console.warn('[NotificationCenter] Failed to fetch notifications:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    // Strictly isolate state per user: clear previous state immediately on switch
+    setNotifications([]);
+    if (role !== 'PUBLIC' && user?.userId) {
+      fetchNotifications();
+    }
+  }, [role, user?.userId]);
 
-  // Close dropdown on outside click
+  // Click outside to close
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [isOpen]);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = notifications.filter(n => !n.read).length;
 
-  const handleMarkRead = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleMarkAsRead = async (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
     try {
-      await markNotificationRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-      );
+      // Optimistic client update
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      // Persist to backend database
+      await api.markAsRead(id);
     } catch (err) {
-      console.warn('Failed to mark notification read remotely:', err);
+      console.warn('[NotificationCenter] Failed to mark read:', err);
+      fetchNotifications();
     }
   };
 
-  const handleMarkAllRead = async () => {
+  const handleMarkAllAsRead = async () => {
     try {
-      await markAllNotificationsRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      await api.markAllNotificationsRead();
+      setStatusMessage('All marked as read');
+      setTimeout(() => setStatusMessage(null), 2500);
     } catch (err) {
-      console.warn('Failed to mark all notifications read remotely:', err);
+      console.warn('[NotificationCenter] Failed to mark all read:', err);
+      fetchNotifications();
     }
   };
 
-  const handleNotificationClick = (n: SystemNotification) => {
-    if (!n.isRead) {
-      markNotificationRead(n.id);
-      setNotifications((prev) =>
-        prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
-      );
+  const handleResetNotifications = async () => {
+    try {
+      setResetting(true);
+      const res = await api.resetNotifications();
+      if (res && Array.isArray(res.notifications)) {
+        setNotifications(res.notifications);
+      } else {
+        await fetchNotifications();
+      }
+      setStatusMessage('Notifications reset successfully');
+      setTimeout(() => setStatusMessage(null), 3000);
+    } catch (err) {
+      console.warn('[NotificationCenter] Failed to reset notifications:', err);
+      setStatusMessage('Reset completed via local store');
+      setTimeout(() => setStatusMessage(null), 3000);
+      await fetchNotifications();
+    } finally {
+      setResetting(false);
     }
-    if (n.projectId && onSelectProject) {
-      onSelectProject(n.projectId);
-      setIsOpen(false);
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'ALERT':
+        return <AlertTriangle className="w-4 h-4 text-[#E07A5F]" />;
+      case 'FINANCE':
+        return <DollarSign className="w-4 h-4 text-[#81B29A]" />;
+      case 'INSPECTION':
+        return <FileCheck2 className="w-4 h-4 text-[#F4A261]" />;
+      case 'AUDIT':
+        return <ShieldCheck className="w-4 h-4 text-govt-navy" />;
+      default:
+        return <Info className="w-4 h-4 text-[#607D8B]" />;
     }
+  };
+
+  const formatTimestamp = (timestamp?: string) => {
+    if (!timestamp) return 'Recently';
+    return formatDate(timestamp, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative inline-block text-left" ref={dropdownRef}>
+      {/* Bell trigger button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 text-gray-700 hover:text-blue-950 hover:bg-gray-100 rounded-md transition-colors"
-        title="Notifications & System Alerts"
+        id="notification-center-btn"
+        onClick={() => {
+          setIsOpen(!isOpen);
+          if (!isOpen) fetchNotifications();
+        }}
+        className="relative p-2 rounded-lg text-panel-bg/80 hover:text-white hover:bg-govt-navy-light transition-colors focus:outline-hidden focus:ring-2 focus:ring-govt-saffron"
+        title={unreadCount > 0 ? `${unreadCount} ${t.unreadCountText}` : t.notificationsTitle}
+        aria-expanded={isOpen}
       >
-        <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+        <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 bg-red-600 text-white font-extrabold text-[10px] w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
-            {unreadCount > 9 ? '9+' : unreadCount}
+          <span
+            id="notification-unread-badge"
+            className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-status-flagged text-[10px] font-bold text-white shadow-xs"
+          >
+            {unreadCount}
           </span>
         )}
       </button>
 
+      {/* Dropdown Panel */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-gray-300 rounded-lg shadow-2xl z-50 overflow-hidden text-xs animate-in fade-in zoom-in-95 duration-100">
+        <div
+          id="notification-dropdown"
+          className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl bg-white shadow-xl border border-slate-border z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150"
+        >
           {/* Header */}
-          <div className="bg-blue-950 text-white p-3 flex items-center justify-between border-b-2 border-amber-500">
+          <div className="flex items-center justify-between px-4 py-3 bg-govt-navy text-white border-b border-govt-navy-dark">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-sm">System Alerts & Notifications</span>
-              {unreadCount > 0 && (
-                <span className="bg-amber-500 text-slate-950 font-extrabold px-1.5 py-0.2 rounded text-[10px]">
-                  {unreadCount} New
+              <span className="font-semibold text-sm">{t.notificationsTitle}</span>
+              {unreadCount > 0 ? (
+                <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-status-flagged text-white">
+                  {t('unreadCountText', { count: unreadCount })}
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-white/15 text-panel-bg/80">
+                  {t.allCaughtUpText}
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               {unreadCount > 0 && (
                 <button
-                  onClick={handleMarkAllRead}
-                  className="text-[10px] font-semibold text-blue-200 hover:text-white flex items-center gap-1 transition-colors"
-                  title="Mark all as read"
+                  id="mark-all-read-btn"
+                  onClick={handleMarkAllAsRead}
+                  className="p-1.5 rounded-md hover:bg-govt-navy-light text-panel-bg/80 hover:text-white text-xs flex items-center gap-1 transition-colors"
+                  title={t.markAllReadText}
                 >
-                  <CheckCheck className="w-3 h-3" />
-                  <span>Mark All</span>
+                  <CheckCheck className="w-4 h-4" />
                 </button>
               )}
               <button
-                onClick={() => setIsOpen(false)}
-                className="text-gray-300 hover:text-white p-0.5 rounded"
+                id="reset-notifications-btn"
+                onClick={handleResetNotifications}
+                disabled={resetting}
+                className="p-1.5 rounded-md hover:bg-govt-navy-light text-panel-bg/80 hover:text-white text-xs flex items-center gap-1 transition-colors"
+                title={t.resetBaselineText}
               >
-                <X className="w-4 h-4" />
+                <RotateCcw className={`w-4 h-4 ${resetting ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
 
-          {/* List */}
-          <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 bg-gray-50/50">
-            {notifications.length === 0 ? (
-              <div className="p-6 text-center text-gray-500 text-xs">
-                No notifications on record.
+          {/* Status Message */}
+          {statusMessage && (
+            <div className="px-3 py-1.5 text-xs bg-panel-bg text-govt-navy font-medium border-b border-slate-border flex items-center justify-between">
+              <span>{statusMessage}</span>
+            </div>
+          )}
+
+          {/* Notification List */}
+          <div className="max-h-80 overflow-y-auto divide-y divide-slate-border">
+            {loading && notifications.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-muted">
+                <div className="w-5 h-5 border-2 border-govt-navy border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                {t.loadingNotificationsText}
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-muted">
+                <Bell className="w-8 h-8 text-slate-muted/50 mx-auto mb-2" />
+                <p className="font-medium text-slate-body">{t.emptyNotificationsTitle}</p>
+                <p className="text-slate-muted mt-0.5">{t.emptyNotificationsDesc}</p>
+                <button
+                  onClick={handleResetNotifications}
+                  className="mt-3 text-xs text-govt-navy font-semibold underline hover:text-govt-navy-light"
+                >
+                  {t.resetBaselineText}
+                </button>
               </div>
             ) : (
-              notifications.map((n) => (
+              notifications.map((item) => (
                 <div
-                  key={n.id}
-                  onClick={() => handleNotificationClick(n)}
-                  className={`p-3 transition-colors cursor-pointer flex items-start gap-2.5 ${
-                    n.isRead ? 'bg-white hover:bg-gray-50' : 'bg-blue-50/70 hover:bg-blue-50'
+                  key={item.id}
+                  id={`notification-item-${item.id}`}
+                  onClick={() => {
+                    handleMarkAsRead(item.id);
+                    if (item.link?.includes('alert') && onNavigateToAlerts) {
+                      onNavigateToAlerts();
+                      setIsOpen(false);
+                    } else if (item.link?.includes('project') && onNavigateToProjects) {
+                      onNavigateToProjects();
+                      setIsOpen(false);
+                    }
+                  }}
+                  className={`p-3.5 transition-colors cursor-pointer flex gap-3 text-left ${
+                    item.read
+                      ? 'bg-white hover:bg-panel-bg'
+                      : 'bg-panel-bg hover:bg-white'
                   }`}
                 >
                   <div className="mt-0.5 shrink-0">
-                    {n.priority === 'Critical' || n.priority === 'high' ? (
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-600 block" />
-                    ) : n.priority === 'High' || n.priority === 'medium' ? (
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 block" />
-                    ) : (
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-600 block" />
-                    )}
+                    <div className="p-2 rounded-lg bg-white shadow-xs border border-slate-border">
+                      {getNotificationIcon(item.type)}
+                    </div>
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className="font-bold text-gray-900 truncate text-xs">{n.title}</span>
-                      <span className="text-[10px] text-gray-500 shrink-0 font-mono">
-                        {new Date(n.createdAt || n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                    <div className="flex items-start justify-between gap-1">
+                      <h4 className={`text-xs ${item.read ? 'font-medium text-slate-muted' : 'font-bold text-slate-body'}`}>
+                        {item.title}
+                      </h4>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {!item.read && (
+                          <button
+                            id={`mark-read-btn-${item.id}`}
+                            onClick={(e) => handleMarkAsRead(item.id, e)}
+                            className="p-0.5 rounded text-slate-muted hover:text-govt-navy hover:bg-white transition-colors"
+                            title={t.markAsReadText}
+                          >
+                            <CheckCheck className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {!item.read && (
+                          <span className="w-2 h-2 rounded-full bg-status-flagged" />
+                        )}
+                      </div>
                     </div>
 
-                    <p className="text-[11px] text-gray-700 leading-snug line-clamp-2">
-                      {n.message}
+                    <p className="text-xs text-slate-muted mt-1 line-clamp-2 leading-relaxed">
+                      {item.message}
                     </p>
 
-                    <div className="mt-1.5 flex items-center justify-between text-[10px]">
-                      {n.workId ? (
-                        <span className="font-mono font-bold text-blue-900 bg-blue-100 px-1.5 py-0.2 rounded">
-                          {n.workId}
+                    <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-muted">
+                      <Clock className="w-3 h-3" />
+                      <span>{formatTimestamp(item.createdAt)}</span>
+                      {item.link && (
+                        <span className="text-govt-navy font-medium flex items-center gap-0.5 ml-auto">
+                          {t.viewDetails}
+                          <ExternalLink className="w-2.5 h-2.5" />
                         </span>
-                      ) : (
-                        <span className="text-gray-400">System Notification</span>
-                      )}
-
-                      {!n.isRead && (
-                        <button
-                          onClick={(e) => handleMarkRead(n.id, e)}
-                          className="text-blue-900 hover:text-blue-950 font-semibold"
-                        >
-                          Mark read
-                        </button>
                       )}
                     </div>
                   </div>
@@ -205,8 +310,19 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onSelect
           </div>
 
           {/* Footer */}
-          <div className="p-2 bg-gray-100 text-center text-[10px] text-gray-600 border-t border-gray-200">
-            Compliant with MoSPI MPLADS automated audit telemetry
+          <div className="px-4 py-2.5 bg-panel-bg border-t border-slate-border flex items-center justify-between text-xs text-slate-muted">
+            <button
+              id="footer-reset-notifications-btn"
+              onClick={handleResetNotifications}
+              disabled={resetting}
+              className="text-govt-navy hover:text-govt-navy-light font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${resetting ? 'animate-spin' : ''}`} />
+              <span>{t.resetBaselineText}</span>
+            </button>
+            <span className="text-[11px] text-slate-muted">
+              {t.roleAuthority}: {translateRole(role)}
+            </span>
           </div>
         </div>
       )}

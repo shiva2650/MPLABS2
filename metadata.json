@@ -1,6 +1,6 @@
 {
   "name": "MPLADS AI Integrity & Monitoring System",
-  "description": "A government-portal-style platform to monitor MPLADS projects, detect fund utilization and execution anomalies, verify GPS and photo EXIF, and enforce transparency and accountability.",
-  "requestFramePermissions": ["geolocation"],
+  "description": "Government monitoring portal for MPLADS developmental projects, detecting cost and duplicate anomalies, verifying geotagged photos, predicting delays, and ensuring role-based transparency.",
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

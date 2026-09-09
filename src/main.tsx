@@ -1,21 +1,20 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
-import { errorLogger } from './services/errorLogger.ts';
-import { validateFirebaseConfig } from './firebase/config.ts';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
-// Initialize global exception and unhandled rejection hooks immediately
-errorLogger.setupGlobalHandlers();
+const rootElement = document.getElementById('root');
 
-// Verify Firebase environment parameters at application bootstrap
-validateFirebaseConfig();
+if (rootElement) {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>
+  );
+} else {
+  console.error('Fatal: #root element not found');
+}
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
